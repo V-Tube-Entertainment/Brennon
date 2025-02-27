@@ -1,97 +1,146 @@
 package com.gizmo.brennon.core.command;
 
 import com.google.inject.Inject;
-import com.gizmo.brennon.core.platform.CommandSender;
-import com.gizmo.brennon.core.scheduler.TaskScheduler;
+import com.gizmo.brennon.core.permission.PermissionService;
 import com.gizmo.brennon.core.service.Service;
+import net.kyori.adventure.text.Component;
 import org.slf4j.Logger;
 
 import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 public class CommandManager implements Service {
     private final Logger logger;
-    private final TaskScheduler scheduler;
-    private final Map<String, RegisteredCommand> commands;
+    private final PermissionService permissionService;
+    private final Map<String, CommandRegistration> commands;
+    private final Executor asyncExecutor;
 
     @Inject
-    public CommandManager(Logger logger, TaskScheduler scheduler) {
+    public CommandManager(Logger logger, PermissionService permissionService) {
         this.logger = logger;
-        this.scheduler = scheduler;
-        this.commands = new HashMap<>();
+        this.permissionService = permissionService;
+        this.commands = new ConcurrentHashMap<>();
+        this.asyncExecutor = Executors.newCachedThreadPool();
     }
 
-    public void registerCommand(Object handler) {
-        for (Method method : handler.getClass().getDeclaredMethods()) {
-            Command command = method.getAnnotation(Command.class);
-            if (command != null) {
-                if (method.getParameterCount() != 3 ||
-                        !CommandSender.class.isAssignableFrom(method.getParameterTypes()[0]) ||
-                        !String.class.equals(method.getParameterTypes()[1]) ||
-                        !String[].class.equals(method.getParameterTypes()[2])) {
-                    logger.error("Invalid command method signature: {}", method);
-                    continue;
-                }
-
-                RegisteredCommand cmd = new RegisteredCommand(
-                        command.name(),
-                        command.description(),
-                        command.permission(),
-                        command.usage(),
-                        command.async(),
-                        handler,
-                        method
-                );
-
-                commands.put(command.name().toLowerCase(), cmd);
-                for (String alias : command.aliases()) {
-                    commands.put(alias.toLowerCase(), cmd);
-                }
-            }
-        }
-    }
-
-    public boolean executeCommand(CommandSender sender, String commandLine) {
-        String[] split = commandLine.split(" ");
-        String label = split[0].toLowerCase();
-        String[] args = Arrays.copyOfRange(split, 1, split.length);
-
-        RegisteredCommand command = commands.get(label);
-        if (command == null) {
-            return false;
-        }
-
-        if (!command.permission().isEmpty() && !sender.hasPermission(command.permission())) {
-            sender.sendMessage("§cYou don't have permission to use this command.");
-            return true;
-        }
-
-        if (command.async()) {
-            scheduler.scheduleAsync(() -> executeCommand(command, sender, label, args));
-        } else {
-            executeCommand(command, sender, label, args);
-        }
-
-        return true;
-    }
-
-    private void executeCommand(RegisteredCommand command, CommandSender sender, String label, String[] args) {
-        try {
-            command.method().invoke(command.handler(), sender, label, args);
-        } catch (Exception e) {
-            logger.error("Error executing command: " + command.name(), e);
-            sender.sendMessage("§cAn error occurred while executing this command.");
-        }
-    }
     @Override
     public void enable() throws Exception {
-        // Initialize command manager
+        commands.clear();
     }
 
     @Override
     public void disable() throws Exception {
-        // Cleanup if needed
+        commands.clear();
+    }
+
+    public void registerCommands(Object instance) {
+        for (Method method : instance.getClass().getDeclaredMethods()) {
+            Command command = method.getAnnotation(Command.class);
+            if (command == null) continue;
+
+            CommandRegistration registration = new CommandRegistration(
+                    command,
+                    instance,
+                    method
+            );
+
+            commands.put(command.name().toLowerCase(), registration);
+            for (String alias : command.aliases()) {
+                commands.put(alias.toLowerCase(), registration);
+            }
+        }
+    }
+
+    public void unregisterCommands(Object instance) {
+        commands.values().removeIf(reg -> reg.instance() == instance);
+    }
+
+    public Optional<CommandRegistration> getCommand(String name) {
+        return Optional.ofNullable(commands.get(name.toLowerCase()));
+    }
+
+    public Collection<CommandRegistration> getCommands() {
+        return new HashSet<>(commands.values());
+    }
+
+    public CompletableFuture<Boolean> executeCommand(CommandContext context) {
+        String commandName = context.getLabel().toLowerCase();
+        Optional<CommandRegistration> registration = getCommand(commandName);
+
+        if (registration.isEmpty()) {
+            context.replyError(Component.text("Unknown command."));
+            return CompletableFuture.completedFuture(false);
+        }
+
+        CommandRegistration reg = registration.get();
+        Command command = reg.command();
+
+        // Check if player is required
+        if (command.requiresPlayer() && !context.isPlayer()) {
+            context.replyError(Component.text("This command can only be used by players."));
+            return CompletableFuture.completedFuture(false);
+        }
+
+        // Check permission
+        if (!command.permission().isEmpty() &&
+                !permissionService.hasPermission(context.getSender(), command.permission())) {
+            context.replyError(Component.text("You don't have permission to use this command."));
+            return CompletableFuture.completedFuture(false);
+        }
+
+        // Execute command
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        Runnable task = () -> {
+            try {
+                reg.method().invoke(reg.instance(), context);
+                future.complete(true);
+            } catch (Exception e) {
+                logger.error("Error executing command: " + command.name(), e);
+                context.replyError(Component.text("An error occurred while executing this command."));
+                future.complete(false);
+            }
+        };
+
+        if (command.async()) {
+            asyncExecutor.execute(task);
+        } else {
+            task.run();
+        }
+
+        return future;
+    }
+
+    public List<String> tabComplete(CommandContext context) {
+        String commandName = context.getLabel().toLowerCase();
+        Optional<CommandRegistration> registration = getCommand(commandName);
+
+        if (registration.isEmpty()) {
+            return List.of();
+        }
+
+        CommandRegistration reg = registration.get();
+        Command command = reg.command();
+
+        // Check permission for tab completion
+        if (!command.permission().isEmpty() &&
+                !permissionService.hasPermission(context.getSender(), command.permission())) {
+            return List.of();
+        }
+
+        try {
+            Method tabComplete = reg.instance().getClass().getMethod("tabComplete", CommandContext.class);
+            @SuppressWarnings("unchecked")
+            List<String> completions = (List<String>) tabComplete.invoke(reg.instance(), context);
+            return completions != null ? completions : List.of();
+        } catch (NoSuchMethodException e) {
+            return List.of(); // No tab completions defined
+        } catch (Exception e) {
+            logger.error("Error getting tab completions for command: " + command.name(), e);
+            return List.of();
+        }
     }
 }

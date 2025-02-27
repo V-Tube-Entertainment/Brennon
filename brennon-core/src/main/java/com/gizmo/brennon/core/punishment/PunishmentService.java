@@ -110,7 +110,7 @@ public class PunishmentService implements Service {
         try {
             String channel = "brennon:punishments";
             String message = String.format("CREATE:%d", punishment.id());
-            redisManager.sync().publish(channel, message);
+            redisManager.publish(channel, message);;
         } catch (Exception e) {
             logger.error("Failed to publish punishment creation notification", e);
         }
@@ -128,7 +128,7 @@ public class PunishmentService implements Service {
                 // Notify other servers via Redis
                 String channel = "brennon:punishments";
                 String message = String.format("REVOKE:%d:%s", punishmentId, revokedBy);
-                redisManager.sync().publish(channel, message);
+                redisManager.publish(channel, message);
                 return true;
             }
         } catch (Exception e) {

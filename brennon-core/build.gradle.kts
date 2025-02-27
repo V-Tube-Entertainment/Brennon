@@ -12,8 +12,12 @@ repositories {
 
 dependencies {
     // Database
-    api("com.zaxxer:HikariCP:5.1.0")
-    api("org.mariadb.jdbc:mariadb-java-client:3.3.2")
+    implementation("com.zaxxer:HikariCP:5.0.1")
+    implementation("mysql:mysql-connector-java:8.0.33")        // MySQL
+    implementation("org.mariadb.jdbc:mariadb-java-client:3.1.4")  // MariaDB
+    implementation("org.postgresql:postgresql:42.6.0")         // PostgreSQL
+    implementation("org.xerial:sqlite-jdbc:3.42.0.0")         // SQLite
+    implementation("com.h2database:h2:2.2.220")               // H2
 
     // Redis
     api("io.lettuce:lettuce-core:6.3.1.RELEASE") {
@@ -36,8 +40,9 @@ dependencies {
         exclude(group = "com.google.guava", module = "guava")
     }
 
-    // JSON
-    api("com.google.code.gson:gson:2.10.1")
+    // JSON //yaml
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("org.yaml:snakeyaml:2.0")
 
     // Utilities
     api("com.google.guava:guava:33.0.0-jre")

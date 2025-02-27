@@ -32,7 +32,6 @@ public class MessageBroker implements Service {
 
     @Override
     public void enable() throws Exception {
-        pubSubConnection = redisManager.createPubSubConnection();
         setupPubSub();
     }
 
@@ -93,10 +92,10 @@ public class MessageBroker implements Service {
     }
 
     public void publish(String channel, JsonObject message) {
-        redisManager.sync().publish(channel, message.toString());
+        redisManager.publish(channel, message.toString());;
     }
 
     public void publish(String channel, String message) {
-        redisManager.sync().publish(channel, message);
+        redisManager.publish(channel, message);
     }
 }

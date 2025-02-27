@@ -232,7 +232,7 @@ public class AnnouncementService implements Service {
         try {
             String channel = "brennon:announcements";
             String message = String.format("CREATE:%d", announcement.id());
-            redisManager.sync().publish(channel, message);
+            redisManager.publish(channel, message);
         } catch (Exception e) {
             logger.error("Failed to publish announcement creation notification", e);
         }
@@ -242,7 +242,7 @@ public class AnnouncementService implements Service {
         try {
             String channel = "brennon:announcements";
             String message = String.format("DEACTIVATE:%d", announcementId);
-            redisManager.sync().publish(channel, message);
+            redisManager.publish(channel, message);
         } catch (Exception e) {
             logger.error("Failed to publish announcement deactivation notification", e);
         }

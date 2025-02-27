@@ -202,7 +202,7 @@ public class TicketService implements Service {
         try {
             String channel = "brennon:tickets";
             String message = String.format("CREATE:%d", ticket.id());
-            redisManager.sync().publish(channel, message);
+            redisManager.publish(channel, message);
         } catch (Exception e) {
             logger.error("Failed to publish ticket creation notification", e);
         }
@@ -212,7 +212,7 @@ public class TicketService implements Service {
         try {
             String channel = "brennon:tickets";
             String message = String.format("RESPONSE:%d:%d", response.ticketId(), response.id());
-            redisManager.sync().publish(channel, message);
+            redisManager.publish(channel, message);
         } catch (Exception e) {
             logger.error("Failed to publish ticket response notification", e);
         }
@@ -222,7 +222,7 @@ public class TicketService implements Service {
         try {
             String channel = "brennon:tickets";
             String message = String.format("STATUS:%d:%s", ticketId, newStatus.name());
-            redisManager.sync().publish(channel, message);
+            redisManager.publish(channel, message);
         } catch (Exception e) {
             logger.error("Failed to publish ticket status update notification", e);
         }
@@ -232,7 +232,7 @@ public class TicketService implements Service {
         try {
             String channel = "brennon:tickets";
             String message = String.format("ASSIGN:%d:%s:%s", ticketId, staffId, staffName);
-            redisManager.sync().publish(channel, message);
+            redisManager.publish(channel, message);
         } catch (Exception e) {
             logger.error("Failed to publish ticket assignment notification", e);
         }
