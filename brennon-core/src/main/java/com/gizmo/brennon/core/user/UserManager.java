@@ -194,6 +194,31 @@ public class UserManager implements Service {
         }
     }
 
+    private void handleMessage(String channel, String message) {
+        try {
+            String[] parts = message.split(":");
+            if (parts.length < 2) return;
+
+            UUID uuid = UUID.fromString(parts[0]);
+            String action = parts[1];
+
+            switch (action) {
+                case "JOIN" -> {
+                    if (parts.length >= 6) {
+                        String username = parts[2];
+                        String ipAddress = parts[3];
+                        String server = parts[4];
+                        handleUserJoin(uuid, username, ipAddress, server);
+                    }
+                }
+                case "QUIT" -> handleUserQuit(uuid);
+                default -> logger.warn("Unknown user action: {}", action);
+            }
+        } catch (Exception e) {
+            logger.error("Error handling user message", e);
+        }
+    }
+
     public NetworkUser getUser(UUID uuid) {
         return onlineUsers.get(uuid);
     }

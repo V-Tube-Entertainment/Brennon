@@ -115,6 +115,10 @@ public class LoadBalancer implements Service {
         return serverAssignments;
     }
     @Override
+    public void enable() throws Exception {
+        // Initialize load balancer
+    }
+    @Override
     public void disable() throws Exception {
         // Cleanup if needed
     }

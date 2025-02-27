@@ -1,58 +1,54 @@
 package com.gizmo.brennon.core.redis;
 
+import com.gizmo.brennon.core.service.Service;
 import com.google.inject.Inject;
-import com.gizmo.brennon.core.config.CoreConfig;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.api.StatefulRedisConnection;
-import io.lettuce.core.api.sync.RedisCommands;
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;
 import org.slf4j.Logger;
 
-public class RedisManager {
+public class RedisManager implements Service {
     private final Logger logger;
-    private final CoreConfig config;
-    private RedisClient redisClient;
+    private final RedisConfig config;
+    private RedisClient client;
     private StatefulRedisConnection<String, String> connection;
 
     @Inject
-    public RedisManager(Logger logger, CoreConfig config) {
+    public RedisManager(Logger logger, RedisConfig config) {
         this.logger = logger;
         this.config = config;
     }
 
-    public void initialize() {
-        logger.info("Initializing Redis connection...");
-        try {
-            RedisURI redisUri = RedisURI.create(config.getRedisConfig().getRedisUrl());
-            this.redisClient = RedisClient.create(redisUri);
-            this.connection = redisClient.connect();
-            logger.info("Redis connection established successfully!");
-        } catch (Exception e) {
-            logger.error("Failed to initialize Redis connection!", e);
-            throw new RuntimeException("Failed to initialize Redis connection", e);
-        }
+    @Override
+    public void enable() throws Exception {
+        RedisURI redisUri = RedisURI.builder()
+                .withHost(config.host())
+                .withPort(config.port())
+                .withPassword(config.password())
+                .withDatabase(config.database())
+                .build();
+
+        client = RedisClient.create(redisUri);
+        connection = client.connect();
+        logger.info("Connected to Redis at {}:{}", config.host(), config.port());
     }
 
-    public void shutdown() {
+    @Override
+    public void disable() throws Exception {
         if (connection != null) {
             connection.close();
         }
-        if (redisClient != null) {
-            redisClient.shutdown();
+        if (client != null) {
+            client.shutdown();
         }
-        logger.info("Redis connection closed successfully!");
-    }
-
-    public RedisCommands<String, String> sync() {
-        return connection.sync();
     }
 
     public StatefulRedisConnection<String, String> getConnection() {
         return connection;
     }
+
     public StatefulRedisPubSubConnection<String, String> createPubSubConnection() {
         return client.connectPubSub();
     }
-
 }

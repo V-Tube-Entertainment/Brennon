@@ -85,6 +85,10 @@ public class CommandManager implements Service {
             sender.sendMessage("§cAn error occurred while executing this command.");
         }
     }
+    @Override
+    public void enable() throws Exception {
+        // Initialize command manager
+    }
 
     @Override
     public void disable() throws Exception {

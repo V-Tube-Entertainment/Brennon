@@ -4,7 +4,10 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven("https://repo.papermc.io/repository/maven-public/")
+    maven("https://oss.sonatype.org/content/repositories/snapshots")
     maven("https://repo.lucko.me/")
+    maven("https://repo.spongepowered.org/repository/maven-public/")
 }
 
 dependencies {
@@ -29,7 +32,7 @@ dependencies {
 
     // Dependency Injection
     api("com.google.inject:guice:7.0.0") {
-        exclude(group = "com.google.guava", module = "guava") // Use Minecraft's Guava
+        exclude(group = "com.google.guava", module = "guava")
     }
 
     // JSON
@@ -59,12 +62,10 @@ dependencies {
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
     options.release.set(17)
+}
 
-    // Remove the module-specific compiler args
-    options.compilerArgs.addAll(listOf(
-        "-Xlint:unchecked",
-        "-Xlint:deprecation"
-    ))
+tasks.test {
+    useJUnitPlatform()
 }
 
 java {
