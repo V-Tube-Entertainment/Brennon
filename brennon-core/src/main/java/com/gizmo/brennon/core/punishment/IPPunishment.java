@@ -6,15 +6,23 @@ import java.util.UUID;
 public record IPPunishment(
         long id,
         String ipAddress,
-        UUID issuerId,
-        String issuerName,
         PunishmentType type,
         String reason,
+        UUID issuerId,
+        String issuerName,
         Instant createdAt,
         Instant expiresAt,
         boolean active
 ) {
+    public boolean isPermanent() {
+        return expiresAt == null;
+    }
+
     public boolean isExpired() {
-        return expiresAt != null && Instant.now().isAfter(expiresAt);
+        return !isPermanent() && Instant.now().isAfter(expiresAt);
+    }
+
+    public boolean isActive() {
+        return active && !isExpired();
     }
 }
