@@ -1,52 +1,67 @@
 package com.gizmo.brennon.core.permission;
 
-
 import net.luckperms.api.LuckPerms;
+import net.luckperms.api.model.user.User;
+import net.luckperms.api.node.types.InheritanceNode;
 
-import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
-public class LuckPermsHelper {
+public class LuckPermsProvider implements PermissionProvider {
     private final LuckPerms luckPerms;
 
-    public LuckPermsHelper(LuckPerms luckPerms) {
+    public LuckPermsProvider(LuckPerms luckPerms) {
         this.luckPerms = luckPerms;
     }
 
-    public CompletableFuture<Collection<String>> getUserGroups(UUID uuid) {
-        return luckPerms.getUserManager().loadUser(uuid)
-                .thenApply(user -> user.getNodes().stream()
-                        .filter(Node::isGroupNode)
-                        .map(Node::getKey)
-                        .collect(Collectors.toSet()));
+    @Override
+    public boolean hasPermission(UUID uuid, String permission) {
+        User user = luckPerms.getUserManager().getUser(uuid);
+        return user != null && user.getCachedData().getPermissionData().checkPermission(permission).asBoolean();
     }
 
-    public CompletableFuture<Boolean> hasPermission(UUID uuid, String permission) {
+    @Override
+    public CompletableFuture<Boolean> hasPermissionAsync(UUID uuid, String permission) {
         return luckPerms.getUserManager().loadUser(uuid)
                 .thenApply(user -> user.getCachedData().getPermissionData().checkPermission(permission).asBoolean());
     }
 
-    public CompletableFuture<Optional<String>> getPrimaryGroup(UUID uuid) {
-        return luckPerms.getUserManager().loadUser(uuid)
-                .thenApply(user -> Optional.ofNullable(user.getPrimaryGroup()));
+    @Override
+    public Optional<String> getPrefix(UUID uuid) {
+        User user = luckPerms.getUserManager().getUser(uuid);
+        return user != null ?
+                Optional.ofNullable(user.getCachedData().getMetaData().getPrefix()) :
+                Optional.empty();
     }
 
-    public CompletableFuture<Void> addPermission(UUID uuid, String permission) {
+    @Override
+    public Optional<String> getSuffix(UUID uuid) {
+        User user = luckPerms.getUserManager().getUser(uuid);
+        return user != null ?
+                Optional.ofNullable(user.getCachedData().getMetaData().getSuffix()) :
+                Optional.empty();
+    }
+
+    @Override
+    public CompletableFuture<Boolean> addGroup(UUID uuid, String group) {
         return luckPerms.getUserManager().loadUser(uuid)
-                .thenAccept(user -> {
-                    user.data().add(Node.builder(permission).build());
+                .thenApplyAsync(user -> {
+                    InheritanceNode node = InheritanceNode.builder(group).build();
+                    user.data().add(node);
                     luckPerms.getUserManager().saveUser(user);
+                    return true;
                 });
     }
 
-    public CompletableFuture<Void> removePermission(UUID uuid, String permission) {
+    @Override
+    public CompletableFuture<Boolean> removeGroup(UUID uuid, String group) {
         return luckPerms.getUserManager().loadUser(uuid)
-                .thenAccept(user -> {
-                    user.data().remove(Node.builder(permission).build());
+                .thenApplyAsync(user -> {
+                    InheritanceNode node = InheritanceNode.builder(group).build();
+                    user.data().remove(node);
                     luckPerms.getUserManager().saveUser(user);
+                    return true;
                 });
     }
 }

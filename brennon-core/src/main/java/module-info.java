@@ -17,8 +17,8 @@ module brennon.core {
     requires ch.qos.logback.classic;
     requires com.github.benmanes.caffeine;
 
-    // Optional dependencies
-    requires static luckperms.api; // Changed from net.luckperms.api to luckperms.api
+    // LuckPerms doesn't expose its module name properly, so we'll just use the classes directly
+    requires static net.luckperms;
 
     // Exports
     exports com.gizmo.brennon.core;

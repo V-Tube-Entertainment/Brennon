@@ -2,6 +2,10 @@ plugins {
     id("java-library")
 }
 
+repositories {
+    maven("https://repo.lucko.me/")
+}
+
 dependencies {
     // Database
     api("com.zaxxer:HikariCP:5.1.0")
