@@ -1,238 +1,295 @@
 package com.gizmo.brennon.core.user;
 
-import com.google.inject.Inject;
-import com.gizmo.brennon.core.database.DatabaseManager;
-import com.gizmo.brennon.core.event.EventBus;
-import com.gizmo.brennon.core.messaging.MessageBroker;
-import com.gizmo.brennon.core.service.Service;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.google.inject.Inject;
+import com.gizmo.brennon.core.database.DatabaseManager;
+import com.gizmo.brennon.core.messaging.MessageBroker;
+import com.gizmo.brennon.core.service.Service;
 import org.slf4j.Logger;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class UserManager implements Service {
     private final Logger logger;
     private final DatabaseManager databaseManager;
-    private final EventBus eventBus;
     private final MessageBroker messageBroker;
-    private final Map<UUID, NetworkUser> onlineUsers;
+    private final Map<UUID, UserInfo> users;
     private final Gson gson;
 
     @Inject
-    public UserManager(Logger logger, DatabaseManager databaseManager,
-                       EventBus eventBus, MessageBroker messageBroker) {
+    public UserManager(Logger logger, DatabaseManager databaseManager, MessageBroker messageBroker) {
         this.logger = logger;
         this.databaseManager = databaseManager;
-        this.eventBus = eventBus;
         this.messageBroker = messageBroker;
-        this.onlineUsers = new ConcurrentHashMap<>();
+        this.users = new ConcurrentHashMap<>();
         this.gson = new Gson();
     }
 
     @Override
     public void enable() throws Exception {
         initializeDatabase();
+        loadOnlineUsers();
         setupMessageBroker();
     }
 
-    private void initializeDatabase() throws SQLException {
-        try (Connection conn = databaseManager.getDataSource().getConnection();
-             Statement stmt = conn.createStatement()) {
+    @Override
+    public void disable() throws Exception {
+        // Mark all users as offline when shutting down
+        for (UUID uuid : new ArrayList<>(users.keySet())) {
+            handleUserQuit(uuid);
+        }
+        users.clear();
+    }
 
-            stmt.execute("""
+    private void initializeDatabase() throws SQLException {
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            // Create users table
+            try (PreparedStatement stmt = conn.prepareStatement("""
                 CREATE TABLE IF NOT EXISTS users (
                     uuid CHAR(36) PRIMARY KEY,
                     username VARCHAR(16) NOT NULL,
-                    first_join TIMESTAMP NOT NULL,
-                    last_join TIMESTAMP NOT NULL,
-                    last_seen TIMESTAMP NOT NULL,
-                    last_ip VARCHAR(45) NOT NULL,
-                    settings JSON NOT NULL,
-                    INDEX idx_username (username)
-                )
-            """);
+                    first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    properties JSON NOT NULL
+                )""")) {
+                stmt.executeUpdate();
+            }
+
+            // Create sessions table
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    user_uuid CHAR(36) NOT NULL,
+                    server_id VARCHAR(64) NOT NULL,
+                    ip_address VARCHAR(45) NOT NULL,
+                    joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    left_at TIMESTAMP,
+                    FOREIGN KEY (user_uuid) REFERENCES users(uuid)
+                )""")) {
+                stmt.executeUpdate();
+            }
+        }
+    }
+
+    private void loadOnlineUsers() {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                SELECT u.*, s.server_id, s.ip_address
+                FROM users u
+                JOIN user_sessions s ON u.uuid = s.user_uuid
+                WHERE s.left_at IS NULL
+                """);
+             ResultSet rs = stmt.executeQuery()) {
+
+            while (rs.next()) {
+                UUID uuid = UUID.fromString(rs.getString("uuid"));
+                UserInfo userInfo = new UserInfo(
+                        uuid,
+                        rs.getString("username"),
+                        rs.getString("server_id"),
+                        UserStatus.ONLINE,
+                        rs.getString("ip_address"),
+                        gson.fromJson(rs.getString("properties"), Map.class),
+                        rs.getTimestamp("first_seen").toInstant(),
+                        rs.getTimestamp("last_seen").toInstant()
+                );
+                users.put(uuid, userInfo);
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to load online users", e);
         }
     }
 
     private void setupMessageBroker() {
         messageBroker.subscribe("brennon:users", message -> {
-            JsonObject data = message.data().getAsJsonObject();
-            String action = data.get("action").getAsString();
-            UUID uuid = UUID.fromString(data.get("uuid").getAsString());
+            try {
+                JsonObject data = gson.fromJson(message, JsonObject.class);
+                String type = data.get("type").getAsString();
+                UUID uuid = UUID.fromString(data.get("uuid").getAsString());
 
-            switch (action) {
-                case "JOIN" -> {
-                    String server = data.get("server").getAsString();
-                    handleUserJoin(uuid, server);
+                switch (type) {
+                    case "JOIN" -> {
+                        String username = data.get("username").getAsString();
+                        String ipAddress = data.get("ipAddress").getAsString();
+                        String server = data.get("server").getAsString();
+                        handleUserJoin(uuid, username, ipAddress, server);
+                    }
+                    case "QUIT" -> handleUserQuit(uuid);
+                    case "SWITCH" -> {
+                        String server = data.get("server").getAsString();
+                        handleUserSwitch(uuid, server);
+                    }
+                    default -> logger.warn("Unknown user action: {}", type);
                 }
-                case "QUIT" -> handleUserQuit(uuid);
-                case "SWITCH" -> {
-                    String server = data.get("server").getAsString();
-                    handleUserSwitch(uuid, server);
-                }
+            } catch (Exception e) {
+                logger.error("Error handling user message", e);
             }
         });
     }
 
-    public NetworkUser handleUserJoin(UUID uuid, String username, String ipAddress, String server) {
+    public void handleUserJoin(UUID uuid, String username, String ipAddress, String serverId) {
         try (Connection conn = databaseManager.getDataSource().getConnection()) {
-            NetworkUser user = getOrCreateUser(conn, uuid, username, ipAddress);
-            user = user.withServer(server);
-            onlineUsers.put(uuid, user);
+            // Update or insert user
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                INSERT INTO users (uuid, username, first_seen, last_seen, properties)
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}')
+                ON DUPLICATE KEY UPDATE 
+                    username = ?,
+                    last_seen = CURRENT_TIMESTAMP
+                """)) {
+                stmt.setString(1, uuid.toString());
+                stmt.setString(2, username);
+                stmt.setString(3, username);
+                stmt.executeUpdate();
+            }
+
+            // Create new session
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                INSERT INTO user_sessions (user_uuid, server_id, ip_address)
+                VALUES (?, ?, ?)
+                """)) {
+                stmt.setString(1, uuid.toString());
+                stmt.setString(2, serverId);
+                stmt.setString(3, ipAddress);
+                stmt.executeUpdate();
+            }
+
+            // Update in-memory cache
+            UserInfo userInfo = new UserInfo(
+                    uuid,
+                    username,
+                    serverId,
+                    UserStatus.ONLINE,
+                    ipAddress,
+                    Map.of(),
+                    Instant.now(),
+                    Instant.now()
+            );
+            users.put(uuid, userInfo);
 
             // Notify other servers
             JsonObject data = new JsonObject();
-            data.addProperty("action", "JOIN");
+            data.addProperty("type", "USER_JOINED");
             data.addProperty("uuid", uuid.toString());
-            data.addProperty("server", server);
+            data.addProperty("username", username);
+            data.addProperty("server", serverId);
             messageBroker.publish("brennon:users", data);
-
-            return user;
         } catch (SQLException e) {
-            logger.error("Error handling user join", e);
-            return null;
-        }
-    }
-
-    private NetworkUser getOrCreateUser(Connection conn, UUID uuid, String username, String ipAddress)
-            throws SQLException {
-        try (PreparedStatement stmt = conn.prepareStatement(
-                "SELECT * FROM users WHERE uuid = ?")) {
-            stmt.setString(1, uuid.toString());
-            ResultSet rs = stmt.executeQuery();
-
-            if (rs.next()) {
-                // Update existing user
-                try (PreparedStatement updateStmt = conn.prepareStatement(
-                        """
-                        UPDATE users 
-                        SET username = ?, last_join = CURRENT_TIMESTAMP, 
-                            last_seen = CURRENT_TIMESTAMP, last_ip = ?
-                        WHERE uuid = ?
-                        """)) {
-                    updateStmt.setString(1, username);
-                    updateStmt.setString(2, ipAddress);
-                    updateStmt.setString(3, uuid.toString());
-                    updateStmt.executeUpdate();
-                }
-
-                return new NetworkUser(
-                        uuid,
-                        username,
-                        null,
-                        rs.getTimestamp("first_join").toInstant(),
-                        Instant.now(),
-                        Instant.now(),
-                        ipAddress,
-                        gson.fromJson(rs.getString("settings"), UserSettings.class)
-                );
-            } else {
-                // Create new user
-                try (PreparedStatement insertStmt = conn.prepareStatement(
-                        """
-                        INSERT INTO users 
-                        (uuid, username, first_join, last_join, last_seen, last_ip, settings)
-                        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?)
-                        """)) {
-                    insertStmt.setString(1, uuid.toString());
-                    insertStmt.setString(2, username);
-                    insertStmt.setString(3, ipAddress);
-                    insertStmt.setString(4, gson.toJson(UserSettings.createDefault()));
-                    insertStmt.executeUpdate();
-                }
-
-                return new NetworkUser(
-                        uuid,
-                        username,
-                        null,
-                        Instant.now(),
-                        Instant.now(),
-                        Instant.now(),
-                        ipAddress,
-                        UserSettings.createDefault()
-                );
-            }
+            logger.error("Failed to handle user join", e);
         }
     }
 
     public void handleUserQuit(UUID uuid) {
-        NetworkUser user = onlineUsers.remove(uuid);
-        if (user != null) {
-            try (Connection conn = databaseManager.getDataSource().getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(
-                         "UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE uuid = ?")) {
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            // Close active session
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                UPDATE user_sessions 
+                SET left_at = CURRENT_TIMESTAMP
+                WHERE user_uuid = ? AND left_at IS NULL
+                """)) {
                 stmt.setString(1, uuid.toString());
                 stmt.executeUpdate();
-
-                // Notify other servers
-                JsonObject data = new JsonObject();
-                data.addProperty("action", "QUIT");
-                data.addProperty("uuid", uuid.toString());
-                messageBroker.publish("brennon:users", data);
-            } catch (SQLException e) {
-                logger.error("Error handling user quit", e);
             }
+
+            // Update last seen
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                UPDATE users 
+                SET last_seen = CURRENT_TIMESTAMP
+                WHERE uuid = ?
+                """)) {
+                stmt.setString(1, uuid.toString());
+                stmt.executeUpdate();
+            }
+
+            // Remove from cache
+            users.remove(uuid);
+
+            // Notify other servers
+            JsonObject data = new JsonObject();
+            data.addProperty("type", "USER_QUIT");
+            data.addProperty("uuid", uuid.toString());
+            messageBroker.publish("brennon:users", data);
+        } catch (SQLException e) {
+            logger.error("Failed to handle user quit", e);
         }
     }
 
     public void handleUserSwitch(UUID uuid, String newServer) {
-        NetworkUser user = onlineUsers.get(uuid);
-        if (user != null) {
-            onlineUsers.put(uuid, user.withServer(newServer));
+        UserInfo user = users.get(uuid);
+        if (user == null) return;
+
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            // Close current session
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                UPDATE user_sessions 
+                SET left_at = CURRENT_TIMESTAMP
+                WHERE user_uuid = ? AND left_at IS NULL
+                """)) {
+                stmt.setString(1, uuid.toString());
+                stmt.executeUpdate();
+            }
+
+            // Create new session
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                INSERT INTO user_sessions (user_uuid, server_id, ip_address)
+                VALUES (?, ?, ?)
+                """)) {
+                stmt.setString(1, uuid.toString());
+                stmt.setString(2, newServer);
+                stmt.setString(3, user.ipAddress());
+                stmt.executeUpdate();
+            }
+
+            // Update cache
+            UserInfo updatedUser = new UserInfo(
+                    user.uuid(),
+                    user.username(),
+                    newServer,
+                    user.status(),
+                    user.ipAddress(),
+                    user.properties(),
+                    user.firstSeen(),
+                    Instant.now()
+            );
+            users.put(uuid, updatedUser);
 
             // Notify other servers
             JsonObject data = new JsonObject();
-            data.addProperty("action", "SWITCH");
+            data.addProperty("type", "USER_SWITCHED");
             data.addProperty("uuid", uuid.toString());
             data.addProperty("server", newServer);
             messageBroker.publish("brennon:users", data);
+        } catch (SQLException e) {
+            logger.error("Failed to handle user switch", e);
         }
     }
 
-    private void handleMessage(String channel, String message) {
-        try {
-            String[] parts = message.split(":");
-            if (parts.length < 2) return;
-
-            UUID uuid = UUID.fromString(parts[0]);
-            String action = parts[1];
-
-            switch (action) {
-                case "JOIN" -> {
-                    if (parts.length >= 5) {
-                        String username = parts[2];
-                        String ipAddress = parts[3];
-                        String server = parts[4];
-                        handleUserJoin(uuid, username, ipAddress, server);
-                    }
-                }
-                case "QUIT" -> handleUserQuit(uuid);
-                default -> logger.warn("Unknown user action: {}", action);
-            }
-        } catch (Exception e) {
-            logger.error("Error handling user message", e);
-        }
+    public Optional<UserInfo> getUser(UUID uuid) {
+        return Optional.ofNullable(users.get(uuid));
     }
 
-    public NetworkUser getUser(UUID uuid) {
-        return onlineUsers.get(uuid);
+    public Collection<UserInfo> getOnlineUsers() {
+        return Collections.unmodifiableCollection(users.values());
     }
 
-    public boolean isOnline(UUID uuid) {
-        return onlineUsers.containsKey(uuid);
+    public Collection<UserInfo> getUsersByServer(String serverId) {
+        return users.values().stream()
+                .filter(user -> serverId.equals(user.currentServer()))
+                .collect(Collectors.toUnmodifiableList());
     }
 
-    public Map<UUID, NetworkUser> getOnlineUsers() {
-        return Map.copyOf(onlineUsers);
+    public boolean isUserOnline(UUID uuid) {
+        return users.containsKey(uuid);
     }
 
-    @Override
-    public void disable() throws Exception {
-        // Cleanup if needed
+    public int getOnlineCount() {
+        return users.size();
     }
 }
