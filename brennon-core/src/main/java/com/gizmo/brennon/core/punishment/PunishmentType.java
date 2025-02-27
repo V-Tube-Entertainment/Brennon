@@ -1,18 +1,26 @@
 package com.gizmo.brennon.core.punishment;
 
 public enum PunishmentType {
-    BAN("banned"),
-    MUTE("muted"),
-    KICK("kicked"),
-    WARNING("warned");
+    BAN("Ban", true),
+    TEMP_BAN("Temporary Ban", true),
+    MUTE("Mute", false),
+    TEMP_MUTE("Temporary Mute", false),
+    WARN("Warning", false),
+    KICK("Kick", false);
 
-    private final String pastTense;
+    private final String displayName;
+    private final boolean preventJoin;
 
-    PunishmentType(String pastTense) {
-        this.pastTense = pastTense;
+    PunishmentType(String displayName, boolean preventJoin) {
+        this.displayName = displayName;
+        this.preventJoin = preventJoin;
     }
 
-    public String getPastTense() {
-        return pastTense;
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public boolean doesPreventJoin() {
+        return preventJoin;
     }
 }

@@ -3,10 +3,9 @@ package com.gizmo.brennon.core.punishment;
 import java.time.Instant;
 import java.util.UUID;
 
-public record Punishment(
+public record IPPunishment(
         long id,
-        UUID targetId,
-        String targetName,
+        String ipAddress,
         UUID issuerId,
         String issuerName,
         PunishmentType type,
@@ -17,9 +16,5 @@ public record Punishment(
 ) {
     public boolean isExpired() {
         return expiresAt != null && Instant.now().isAfter(expiresAt);
-    }
-
-    public boolean isPermanent() {
-        return expiresAt == null;
     }
 }
