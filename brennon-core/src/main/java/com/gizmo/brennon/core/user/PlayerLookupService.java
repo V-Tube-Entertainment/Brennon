@@ -1,5 +1,6 @@
 package com.gizmo.brennon.core.user;
 
+import com.google.gson.Gson;
 import com.google.inject.Inject;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.api.StatefulRedisConnection;
@@ -14,10 +15,9 @@ public class PlayerLookupService {
     private final Logger logger;
     private final RedisClient redisClient;
     private final StatefulRedisConnection<String, String> connection;
-    // Cache UUIDs for 1 hour to reduce database load
     private final Map<String, CachedUUID> uuidCache;
-    // Cache usernames for 1 hour to reduce database load
     private final Map<UUID, CachedUsername> usernameCache;
+    private final Gson gson;  // Added Gson field
 
     @Inject
     public PlayerLookupService(Logger logger, RedisClient redisClient) {
@@ -26,6 +26,7 @@ public class PlayerLookupService {
         this.connection = redisClient.connect();
         this.uuidCache = new ConcurrentHashMap<>();
         this.usernameCache = new ConcurrentHashMap<>();
+        this.gson = new Gson();  // Initialize Gson
     }
 
     /**
@@ -54,8 +55,6 @@ public class PlayerLookupService {
             logger.error("Failed to lookup UUID from Redis for {}", username, e);
         }
 
-        // TODO: If not found, check database for offline players
-        // For now, return null to indicate player not found
         return null;
     }
 
@@ -84,17 +83,9 @@ public class PlayerLookupService {
             logger.error("Failed to lookup username from Redis for {}", uuid, e);
         }
 
-        // TODO: If not found, check database for offline players
-        // For now, return null to indicate player not found
         return null;
     }
 
-    /**
-     * Gets UserInfo for a player by their UUID.
-     *
-     * @param uuid The UUID to look up
-     * @return UserInfo if found, otherwise null
-     */
     public UserInfo getUserInfo(UUID uuid) {
         String username = getUsername(uuid);
         if (username == null) {
@@ -109,14 +100,14 @@ public class PlayerLookupService {
                         uuid,
                         username,
                         info.getOrDefault("displayName", username),
-                        UserStatus.valueOf(info.getOrDefault("status", "OFFLINE")),
-                        info.getOrDefault("locale", "en_US"),
-                        new HashMap<>(info),
-                        Instant.parse(info.getOrDefault("firstJoin", Instant.now().toString())),
-                        Instant.parse(info.getOrDefault("lastSeen", Instant.now().toString())),
+                        info.getOrDefault("currentServer", ""),
+                        UserStatus.valueOf(info.getOrDefault("status", UserStatus.OFFLINE.name())),
                         info.getOrDefault("ipAddress", ""),
-                        parseProperties(info.getOrDefault("properties", "{}")),
-                        info.getOrDefault("currentServer", "")
+                        info.getOrDefault("locale", "en_US"),
+                        parseJsonMap(info.getOrDefault("metadata", "{}")),
+                        parseJsonMap(info.getOrDefault("properties", "{}")),
+                        Instant.parse(info.getOrDefault("firstJoin", Instant.now().toString())),
+                        Instant.parse(info.getOrDefault("lastSeen", Instant.now().toString()))
                 );
             }
         } catch (Exception e) {
@@ -145,9 +136,9 @@ public class PlayerLookupService {
                 info.put("firstJoin", userInfo.firstJoin().toString());
                 info.put("lastSeen", userInfo.lastSeen().toString());
                 info.put("ipAddress", userInfo.ipAddress());
-                info.put("properties", serializeProperties(userInfo.properties()));
                 info.put("currentServer", userInfo.currentServer());
-                info.putAll(userInfo.metadata());
+                info.put("metadata", gson.toJson(userInfo.metadata()));
+                info.put("properties", gson.toJson(userInfo.properties()));
                 sync.hmset("player:info:" + uuid, info);
             }
         } catch (Exception e) {
@@ -157,7 +148,6 @@ public class PlayerLookupService {
 
     /**
      * Removes a player from the cache.
-     * This should be called when players leave the server.
      *
      * @param uuid The player's UUID
      * @param username The player's username
@@ -176,22 +166,20 @@ public class PlayerLookupService {
         }
     }
 
-    private Map<String, String> parseProperties(String json) {
-        // TODO: Implement JSON parsing
-        return new HashMap<>();
+    @SuppressWarnings("unchecked")
+    private Map<String, String> parseJsonMap(String json) {
+        try {
+            return gson.fromJson(json, Map.class);
+        } catch (Exception e) {
+            logger.error("Failed to parse JSON map: {}", json, e);
+            return new HashMap<>();
+        }
     }
 
-    private String serializeProperties(Map<String, String> properties) {
-        // TODO: Implement JSON serialization
-        return "{}";
-    }
-
-    /**
-     * Clean up resources when shutting down
-     */
     public void shutdown() {
-        connection.close();
-        redisClient.shutdown();
+        if (connection != null) {
+            connection.close();
+        }
     }
 
     private record CachedUUID(UUID uuid, long timestamp) {

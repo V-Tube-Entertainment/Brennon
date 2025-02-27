@@ -6,9 +6,8 @@ import java.util.UUID;
 public record Evidence(
         long id,
         long punishmentId,
-        String type,
+        EvidenceType type,
         String content,
-        UUID submitterId,
-        String submitterName,
+        UUID submittedBy,
         Instant submittedAt
 ) {}
