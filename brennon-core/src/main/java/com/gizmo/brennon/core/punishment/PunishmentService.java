@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 public class PunishmentService implements Service {
     private final Logger logger;
@@ -30,6 +31,8 @@ public class PunishmentService implements Service {
     @Override
     public void enable() throws Exception {
         initializeDatabase();
+        // Schedule expired punishment cleanup every 5 minutes
+        scheduler.scheduleAtFixedRate(this::handleExpiredPunishments, 5, 5, TimeUnit.MINUTES);
     }
 
     @Override
@@ -41,6 +44,7 @@ public class PunishmentService implements Service {
         try (Connection conn = databaseManager.getDataSource().getConnection();
              Statement stmt = conn.createStatement()) {
 
+            // Main punishments table
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS punishments (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -54,7 +58,40 @@ public class PunishmentService implements Service {
                     expires_at TIMESTAMP NULL,
                     active BOOLEAN NOT NULL DEFAULT TRUE,
                     INDEX idx_target_id (target_id),
-                    INDEX idx_active (active)
+                    INDEX idx_active (active),
+                    INDEX idx_expires_at (expires_at)
+                )
+            """);
+
+            // IP punishments table
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS ip_punishments (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    ip_address VARCHAR(45) NOT NULL,
+                    issuer_id CHAR(36) NOT NULL,
+                    issuer_name VARCHAR(16) NOT NULL,
+                    type VARCHAR(16) NOT NULL,
+                    reason TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NULL,
+                    active BOOLEAN NOT NULL DEFAULT TRUE,
+                    INDEX idx_ip_address (ip_address),
+                    INDEX idx_active (active),
+                    INDEX idx_expires_at (expires_at)
+                )
+            """);
+
+            // Staff notes table
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS punishment_notes (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    punishment_id BIGINT NOT NULL,
+                    staff_id CHAR(36) NOT NULL,
+                    staff_name VARCHAR(16) NOT NULL,
+                    note TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (punishment_id) REFERENCES punishments(id) ON DELETE CASCADE,
+                    INDEX idx_punishment_id (punishment_id)
                 )
             """);
         }
@@ -106,16 +143,6 @@ public class PunishmentService implements Service {
         return null;
     }
 
-    private void notifyPunishmentCreated(Punishment punishment) {
-        try {
-            String channel = "brennon:punishments";
-            String message = String.format("CREATE:%d", punishment.id());
-            redisManager.publish(channel, message);;
-        } catch (Exception e) {
-            logger.error("Failed to publish punishment creation notification", e);
-        }
-    }
-
     public boolean revokePunishment(long punishmentId, UUID revokedBy) {
         try (Connection conn = databaseManager.getDataSource().getConnection();
              PreparedStatement stmt = conn.prepareStatement(
@@ -145,6 +172,7 @@ public class PunishmentService implements Service {
                      SELECT * FROM punishments 
                      WHERE target_id = ? AND active = TRUE 
                      AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                     ORDER BY created_at DESC
                      """)) {
 
             stmt.setString(1, targetId.toString());
@@ -157,6 +185,115 @@ public class PunishmentService implements Service {
             logger.error("Failed to get active punishments", e);
         }
         return punishments;
+    }
+
+    public List<Punishment> getPunishmentHistory(UUID targetId, int limit, int offset) {
+        List<Punishment> punishments = new ArrayList<>();
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     """
+                     SELECT * FROM punishments 
+                     WHERE target_id = ? 
+                     ORDER BY created_at DESC 
+                     LIMIT ? OFFSET ?
+                     """)) {
+
+            stmt.setString(1, targetId.toString());
+            stmt.setInt(2, limit);
+            stmt.setInt(3, offset);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    punishments.add(mapResultSetToPunishment(rs));
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Failed to get punishment history", e);
+        }
+        return punishments;
+    }
+
+    public boolean addNote(long punishmentId, UUID staffId, String staffName, String note) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     """
+                     INSERT INTO punishment_notes (punishment_id, staff_id, staff_name, note)
+                     VALUES (?, ?, ?, ?)
+                     """)) {
+
+            stmt.setLong(1, punishmentId);
+            stmt.setString(2, staffId.toString());
+            stmt.setString(3, staffName);
+            stmt.setString(4, note);
+
+            return stmt.executeUpdate() > 0;
+        } catch (Exception e) {
+            logger.error("Failed to add punishment note", e);
+            return false;
+        }
+    }
+
+    public List<PunishmentNote> getNotes(long punishmentId) {
+        List<PunishmentNote> notes = new ArrayList<>();
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     """
+                     SELECT * FROM punishment_notes 
+                     WHERE punishment_id = ? 
+                     ORDER BY created_at DESC
+                     """)) {
+
+            stmt.setLong(1, punishmentId);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    notes.add(new PunishmentNote(
+                            rs.getLong("id"),
+                            rs.getLong("punishment_id"),
+                            UUID.fromString(rs.getString("staff_id")),
+                            rs.getString("staff_name"),
+                            rs.getString("note"),
+                            rs.getTimestamp("created_at").toInstant()
+                    ));
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Failed to get punishment notes", e);
+        }
+        return notes;
+    }
+
+    private void handleExpiredPunishments() {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     """
+                     UPDATE punishments 
+                     SET active = FALSE 
+                     WHERE active = TRUE 
+                     AND expires_at IS NOT NULL 
+                     AND expires_at <= CURRENT_TIMESTAMP
+                     """)) {
+
+            int updated = stmt.executeUpdate();
+            if (updated > 0) {
+                logger.info("Deactivated {} expired punishments", updated);
+                String channel = "brennon:punishments";
+                String message = "EXPIRED:AUTO";
+                redisManager.publish(channel, message);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to handle expired punishments", e);
+        }
+    }
+
+    private void notifyPunishmentCreated(Punishment punishment) {
+        try {
+            String channel = "brennon:punishments";
+            String message = String.format("CREATE:%d", punishment.id());
+            redisManager.publish(channel, message);
+        } catch (Exception e) {
+            logger.error("Failed to publish punishment creation notification", e);
+        }
     }
 
     private Punishment mapResultSetToPunishment(ResultSet rs) throws Exception {
