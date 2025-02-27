@@ -10,6 +10,7 @@ module brennon.core {
     requires com.google.gson;
     requires java.sql;
     requires api;
+    requires org.spongepowered.configurate;
 
     exports com.gizmo.brennon.core;
     exports com.gizmo.brennon.core.config;

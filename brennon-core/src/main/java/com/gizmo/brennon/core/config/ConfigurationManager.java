@@ -108,4 +108,46 @@ public class ConfigurationManager implements Service {
                     newConfig,
                     container.loader(),
                     node
+            ));
 
+            // Notify configuration change listeners
+            for (ConfigurationChangeListener listener : container.listeners()) {
+                try {
+                    listener.onConfigurationChanged(newConfig);
+                } catch (Exception e) {
+                    logger.error("Error notifying configuration change listener", e);
+                }
+            }
+
+            logger.info("Reloaded configuration: {}", fileName);
+        } catch (Exception e) {
+            logger.error("Failed to reload configuration: " + fileName, e);
+        }
+    }
+
+    public void addChangeListener(String fileName, ConfigurationChangeListener listener) {
+        ConfigurationContainer container = configurations.get(fileName);
+        if (container != null) {
+            container.listeners().add(listener);
+        }
+    }
+
+    public void removeChangeListener(String fileName, ConfigurationChangeListener listener) {
+        ConfigurationContainer container = configurations.get(fileName);
+        if (container != null) {
+            container.listeners().remove(listener);
+        }
+    }
+
+    public void saveConfiguration(String fileName) {
+        ConfigurationContainer container = configurations.get(fileName);
+        if (container != null) {
+            try {
+                container.loader().save(container.node());
+                logger.info("Saved configuration: {}", fileName);
+            } catch (Exception e) {
+                logger.error("Failed to save configuration: " + fileName, e);
+            }
+        }
+    }
+}
