@@ -153,4 +153,73 @@ public class ServerManager implements Service {
         }, 15, 15, TimeUnit.SECONDS);
     }
 
-    public void registerServer(String id, String name, String type,
+    public void registerServer(String id, String name, String type, String group,
+                               String host, int port, boolean restricted) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                INSERT INTO servers 
+                (id, name, type, server_group, host, port, restricted, properties)
+                VALUES (?, ?, ?, ?, ?, ?, ?, '{}')
+                """)) {
+
+            stmt.setString(1, id);
+            stmt.setString(2, name);
+            stmt.setString(3, type);
+            stmt.setString(4, group);
+            stmt.setString(5, host);
+            stmt.setInt(6, port);
+            stmt.setBoolean(7, restricted);
+
+            stmt.executeUpdate();
+
+            ServerInfo server = new ServerInfo(
+                    id,
+                    name,
+                    type,
+                    group,
+                    host,
+                    port,
+                    restricted,
+                    ServerStatus.OFFLINE,
+                    Map.of(),
+                    100,
+                    0,
+                    0.0,
+                    0.0,
+                    0L,
+                    0L,
+                    Instant.now()
+            );
+
+            servers.put(id, server);
+        } catch (SQLException e) {
+            logger.error("Failed to register server", e);
+        }
+    }
+
+    public void unregisterServer(String id) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("DELETE FROM servers WHERE id = ?")) {
+
+            stmt.setString(1, id);
+            stmt.executeUpdate();
+            servers.remove(id);
+        } catch (SQLException e) {
+            logger.error("Failed to unregister server", e);
+        }
+    }
+
+    public ServerInfo getServer(String id) {
+        return servers.get(id);
+    }
+
+    public Collection<ServerInfo> getAllServers() {
+        return Collections.unmodifiableCollection(servers.values());
+    }
+
+    public Collection<ServerInfo> getServersByGroup(String group) {
+        return servers.values().stream()
+                .filter(server -> server.group().equals(group))
+                .collect(Collectors.toList());
+    }
+}

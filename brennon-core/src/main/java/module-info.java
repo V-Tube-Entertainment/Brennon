@@ -10,13 +10,15 @@ module brennon.core {
     requires transitive org.spongepowered.configurate.hocon;
     requires transitive org.spongepowered.configurate.gson;
     requires transitive java.sql;
-    requires static net.luckperms.api;
     requires com.google.gson;
     requires org.apache.commons.lang3;
     requires com.google.common;
     requires java.base;
     requires ch.qos.logback.classic;
     requires com.github.benmanes.caffeine;
+
+    // Optional dependencies
+    requires static luckperms.api; // Changed from net.luckperms.api to luckperms.api
 
     // Exports
     exports com.gizmo.brennon.core;

@@ -46,7 +46,7 @@ public class ServerGroupManager implements Service {
                     type VARCHAR(32) NOT NULL,
                     properties JSON NOT NULL
                 )
-            """);
+                """);
 
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS server_group_members (
@@ -55,7 +55,7 @@ public class ServerGroupManager implements Service {
                     PRIMARY KEY (group_id, server_id),
                     FOREIGN KEY (group_id) REFERENCES server_groups(id) ON DELETE CASCADE
                 )
-            """);
+                """);
         }
     }
 
@@ -105,3 +105,66 @@ public class ServerGroupManager implements Service {
         try (Connection conn = databaseManager.getDataSource().getConnection();
              PreparedStatement stmt = conn.prepareStatement("""
                 INSERT INTO server_groups (id, name, description, type, properties)
+                VALUES (?, ?, ?, ?, ?)
+                """)) {
+
+            stmt.setString(1, id);
+            stmt.setString(2, name);
+            stmt.setString(3, description);
+            stmt.setString(4, type.name());
+            stmt.setString(5, gson.toJson(properties));
+
+            stmt.executeUpdate();
+
+            ServerGroup group = new ServerGroup(
+                    id,
+                    name,
+                    description,
+                    false,
+                    new HashSet<>(),
+                    type,
+                    properties
+            );
+
+            groups.put(id, group);
+            return group;
+        } catch (SQLException e) {
+            logger.error("Failed to create server group", e);
+            return null;
+        }
+    }
+
+    public void updateGroup(ServerGroup group) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                UPDATE server_groups 
+                SET name = ?, description = ?, restricted = ?, type = ?, properties = ?
+                WHERE id = ?
+                """)) {
+
+            stmt.setString(1, group.name());
+            stmt.setString(2, group.description());
+            stmt.setBoolean(3, group.restricted());
+            stmt.setString(4, group.type().name());
+            stmt.setString(5, gson.toJson(group.properties()));
+            stmt.setString(6, group.id());
+
+            stmt.executeUpdate();
+            groups.put(group.id(), group);
+        } catch (SQLException e) {
+            logger.error("Failed to update server group", e);
+        }
+    }
+
+    public void deleteGroup(String id) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("DELETE FROM server_groups WHERE id = ?")) {
+
+            stmt.setString(1, id);
+            stmt.executeUpdate();
+            groups.remove(id);
+        } catch (SQLException e) {
+            logger.error("Failed to delete server group", e);
+        }
+    }
+}
