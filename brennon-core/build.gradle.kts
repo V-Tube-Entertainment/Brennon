@@ -30,6 +30,7 @@ dependencies {
     api("net.kyori:adventure-text-minimessage:4.15.0")
     api("net.kyori:adventure-text-serializer-gson:4.15.0")
     api("net.kyori:adventure-text-serializer-legacy:4.15.0")
+    api("net.kyori:adventure-platform-bukkit:4.3.4")
 
     // Configuration
     api("org.spongepowered:configurate-hocon:4.1.2")

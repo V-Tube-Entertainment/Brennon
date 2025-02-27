@@ -1,171 +1,130 @@
 package com.gizmo.brennon.core.player;
 
+import com.google.gson.Gson;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import com.gizmo.brennon.core.cache.CacheManager;
 import com.gizmo.brennon.core.database.DatabaseManager;
-import com.gizmo.brennon.core.service.Service;
+import com.gizmo.brennon.core.redis.RedisManager;
+import net.luckperms.api.LuckPerms;
 import org.slf4j.Logger;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 @Singleton
-public class PlayerManager implements Service {
+public class PlayerManager {
     private final Logger logger;
     private final DatabaseManager databaseManager;
-    private final CacheManager cacheManager;
-    private final Map<UUID, PlayerData> playerCache;
+    private final RedisManager redisManager;
+    private final LuckPerms luckPerms;
+    private final Map<UUID, BrennonPlayer> playerCache;
 
     @Inject
-    public PlayerManager(Logger logger, DatabaseManager databaseManager, CacheManager cacheManager) {
+    public PlayerManager(Logger logger, DatabaseManager databaseManager,
+                         RedisManager redisManager, LuckPerms luckPerms) {
         this.logger = logger;
         this.databaseManager = databaseManager;
-        this.cacheManager = cacheManager;
+        this.redisManager = redisManager;
+        this.luckPerms = luckPerms;
         this.playerCache = new ConcurrentHashMap<>();
     }
 
-    @Override
-    public void enable() throws Exception {
-        createTables();
-        logger.info("PlayerManager enabled successfully");
+    public Optional<BrennonPlayer> getPlayer(UUID uuid) {
+        return Optional.ofNullable(playerCache.computeIfAbsent(uuid, this::loadPlayer));
     }
 
-    @Override
-    public void disable() throws Exception {
-        saveAllData();
-        playerCache.clear();
-        logger.info("PlayerManager disabled successfully");
+    private BrennonPlayer loadPlayer(UUID uuid) {
+        try (Connection conn = databaseManager.getConnection()) {
+            PreparedStatement stmt = conn.prepareStatement(
+                    "SELECT * FROM players WHERE uuid = ?"
+            );
+            stmt.setString(1, uuid.toString());
+            ResultSet rs = stmt.executeQuery();
+
+            if (rs.next()) {
+                String username = rs.getString("username");
+                BrennonPlayer player = new BrennonPlayer(uuid, username);
+
+                player.setDisplayName(rs.getString("display_name"));
+                player.setFirstJoin(rs.getTimestamp("first_join").toInstant());
+                player.setLastSeen(rs.getTimestamp("last_seen").toInstant());
+                player.setCurrentServer(rs.getString("current_server"));
+
+                // Load LuckPerms user
+                luckPerms.getUserManager().loadUser(uuid).thenAcceptAsync(player::setLuckPermsUser);
+
+                return player;
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to load player data for " + uuid, e);
+        }
+        return null;
     }
 
-    private void createTables() {
-        try (Connection conn = databaseManager.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "CREATE TABLE IF NOT EXISTS player_data (" +
-                             "uuid VARCHAR(36) PRIMARY KEY, " +
-                             "username VARCHAR(16) NOT NULL, " +
-                             "first_join TIMESTAMP NOT NULL, " +
-                             "last_seen TIMESTAMP NOT NULL, " +
-                             "playtime BIGINT DEFAULT 0, " +
-                             "last_server VARCHAR(64), " +
-                             "settings JSON, " +
-                             "statistics JSON)"
-             )) {
+    public void savePlayer(BrennonPlayer player) {
+        try (Connection conn = databaseManager.getConnection()) {
+            PreparedStatement stmt = conn.prepareStatement("""
+                INSERT INTO players (
+                    uuid, username, display_name, first_join, last_seen, 
+                    current_server, stats, settings, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    username = VALUES(username),
+                    display_name = VALUES(display_name),
+                    last_seen = VALUES(last_seen),
+                    current_server = VALUES(current_server),
+                    stats = VALUES(stats),
+                    settings = VALUES(settings),
+                    metadata = VALUES(metadata)
+            """);
+
+            stmt.setString(1, player.getUniqueId().toString());
+            stmt.setString(2, player.getUsername());
+            stmt.setString(3, player.getDisplayName());
+            stmt.setObject(4, player.getFirstJoin());
+            stmt.setObject(5, player.getLastSeen());
+            stmt.setString(6, player.getCurrentServer());
+            stmt.setString(7, new Gson().toJson(player.getStats()));
+            stmt.setString(8, new Gson().toJson(player.getSettings()));
+            stmt.setString(9, new Gson().toJson(player.getAllMetadata()));
+
             stmt.executeUpdate();
-        } catch (Exception e) {
-            logger.error("Failed to create player_data table", e);
+
+            // Notify other servers about the update
+            notifyUpdate(player);
+        } catch (SQLException e) {
+            logger.error("Failed to save player data for " + player.getUniqueId(), e);
         }
     }
 
-    /**
-     * Loads player data from cache or database
-     */
-    public CompletableFuture<PlayerData> loadPlayerData(UUID uuid) {
-        return CompletableFuture.supplyAsync(() -> {
-            // Check cache first
-            PlayerData cached = playerCache.get(uuid);
-            if (cached != null) {
-                return cached;
-            }
-
-            // Load from database
-            try (Connection conn = databaseManager.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(
-                         "SELECT * FROM player_data WHERE uuid = ?")) {
-                stmt.setString(1, uuid.toString());
-                ResultSet rs = stmt.executeQuery();
-
-                PlayerData data;
-                if (rs.next()) {
-                    data = PlayerData.fromResultSet(rs);
-                } else {
-                    data = new PlayerData(uuid);
-                }
-
-                playerCache.put(uuid, data);
-                return data;
-            } catch (Exception e) {
-                logger.error("Failed to load player data for " + uuid, e);
-                return new PlayerData(uuid);
-            }
+    public void updatePlayerServer(UUID uuid, String server) {
+        getPlayer(uuid).ifPresent(player -> {
+            player.setCurrentServer(server);
+            player.setLastSeen(Instant.now());
+            savePlayer(player);
         });
     }
 
-    /**
-     * Saves player data to database
-     */
-    public CompletableFuture<Void> savePlayerData(PlayerData data) {
-        return CompletableFuture.runAsync(() -> {
-            try (Connection conn = databaseManager.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(
-                         "INSERT INTO player_data (uuid, username, first_join, last_seen, playtime, " +
-                                 "last_server, settings, statistics) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
-                                 "ON DUPLICATE KEY UPDATE username = ?, last_seen = ?, playtime = ?, " +
-                                 "last_server = ?, settings = ?, statistics = ?")) {
-
-                stmt.setString(1, data.getUuid().toString());
-                stmt.setString(2, data.getUsername());
-                stmt.setTimestamp(3, java.sql.Timestamp.from(data.getFirstJoin()));
-                stmt.setTimestamp(4, java.sql.Timestamp.from(data.getLastSeen()));
-                stmt.setLong(5, data.getPlaytime());
-                stmt.setString(6, data.getLastServer());
-                stmt.setString(7, data.getSettingsJson());
-                stmt.setString(8, data.getStatisticsJson());
-
-                // Update values
-                stmt.setString(9, data.getUsername());
-                stmt.setTimestamp(10, java.sql.Timestamp.from(data.getLastSeen()));
-                stmt.setLong(11, data.getPlaytime());
-                stmt.setString(12, data.getLastServer());
-                stmt.setString(13, data.getSettingsJson());
-                stmt.setString(14, data.getStatisticsJson());
-
-                stmt.executeUpdate();
-            } catch (Exception e) {
-                logger.error("Failed to save player data for " + data.getUuid(), e);
-            }
-        });
+    private void notifyUpdate(BrennonPlayer player) {
+        PlayerUpdate update = new PlayerUpdate(
+                player.getUniqueId(),
+                player.getUsername(),
+                player.getCurrentServer(),
+                player.isOnline()
+        );
+        redisManager.publish("brennon:player:update", new Gson().toJson(update));
     }
 
-    /**
-     * Updates a player's last seen time and server
-     */
-    public void updatePlayerStatus(UUID uuid, String server) {
-        PlayerData data = playerCache.get(uuid);
-        if (data != null) {
-            data.setLastSeen(Instant.now());
-            data.setLastServer(server);
-        }
-    }
-
-    /**
-     * Gets cached player data if available
-     */
-    public Optional<PlayerData> getCachedData(UUID uuid) {
-        return Optional.ofNullable(playerCache.get(uuid));
-    }
-
-    /**
-     * Removes player data from cache
-     */
     public void invalidateCache(UUID uuid) {
         playerCache.remove(uuid);
     }
 
-    /**
-     * Saves all cached player data
-     */
-    public void saveAllData() {
-        playerCache.values().forEach(data ->
-                savePlayerData(data).join()
-        );
-    }
+    private record PlayerUpdate(UUID uuid, String username, String server, boolean online) {}
 }

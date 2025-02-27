@@ -1,6 +1,9 @@
 package com.gizmo.brennon.core.player;
 
+import com.gizmo.brennon.core.player.rank.NetworkRank;
 import com.google.gson.Gson;
+import net.luckperms.api.model.user.User;
+
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -11,7 +14,8 @@ public class PlayerData {
 
     private final UUID uuid;
     private String username;
-    private PlayerRank rank;
+    private NetworkRank rank;
+    private User luckPermsUser;
     private Instant lastSeen;
     private long playtime;
     private PlayerSettings settings;
@@ -20,7 +24,7 @@ public class PlayerData {
     public PlayerData(UUID uuid, String username) {
         this.uuid = uuid;
         this.username = username;
-        this.rank = PlayerRank.DEFAULT;
+        this.rank = NetworkRank.DEFAULT;
         this.lastSeen = Instant.now();
         this.playtime = 0;
         this.settings = new PlayerSettings();
@@ -32,7 +36,11 @@ public class PlayerData {
         String username = rs.getString("username");
         PlayerData data = new PlayerData(uuid, username);
 
-        data.rank = PlayerRank.fromString(rs.getString("rank"));
+        String rankName = rs.getString("rank");
+        if (rankName != null) {
+            data.rank = NetworkRank.fromGroupName(rankName);
+        }
+
         data.lastSeen = rs.getTimestamp("last_seen").toInstant();
         data.playtime = rs.getLong("playtime");
 
@@ -61,12 +69,23 @@ public class PlayerData {
         this.username = username;
     }
 
-    public PlayerRank getRank() {
+    public NetworkRank getRank() {
         return rank;
     }
 
-    public void setRank(PlayerRank rank) {
+    public void setRank(NetworkRank rank) {
         this.rank = rank;
+    }
+
+    public User getLuckPermsUser() {
+        return luckPermsUser;
+    }
+
+    public void setLuckPermsUser(User user) {
+        this.luckPermsUser = user;
+        // Get primary group name and convert to NetworkRank
+        String primaryGroupName = user.getPrimaryGroup();
+        this.rank = NetworkRank.fromGroupName(primaryGroupName);
     }
 
     public Instant getLastSeen() {
@@ -99,5 +118,21 @@ public class PlayerData {
 
     public PlayerStats getStatistics() {
         return statistics;
+    }
+
+    public String getFormattedName() {
+        return rank.getColor() + username;
+    }
+
+    public String getFormattedDisplayName() {
+        return rank.getPrefix() + " " + username;
+    }
+
+    public boolean isStaff() {
+        return rank.isStaff();
+    }
+
+    public boolean isAdmin() {
+        return rank.isAdmin();
     }
 }
