@@ -6,17 +6,15 @@ public record ServerGroupProperties(
         boolean autoScaling,
         int minServers,
         int maxServers,
-        int playersPerServer,
-        boolean randomJoin,
-        Map<String, String> customProperties
+        String template,
+        Map<String, String> properties
 ) {
-    public static ServerGroupProperties createDefault() {
+    public static ServerGroupProperties defaults() {
         return new ServerGroupProperties(
                 false,
                 1,
-                1,
-                100,
-                true,
+                5,
+                "default",
                 Map.of()
         );
     }

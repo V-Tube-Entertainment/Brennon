@@ -1,46 +1,46 @@
 package com.gizmo.brennon.core.database;
 
+import com.gizmo.brennon.core.service.Service;
 import com.google.inject.Inject;
-import com.gizmo.brennon.core.config.CoreConfig;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.SQLException;
 
-public class DatabaseManager {
+public class DatabaseManager implements Service {
     private final Logger logger;
-    private final CoreConfig config;
+    private final DatabaseConfig config;
     private HikariDataSource dataSource;
 
     @Inject
-    public DatabaseManager(Logger logger, CoreConfig config) {
+    public DatabaseManager(Logger logger, DatabaseConfig config) {
         this.logger = logger;
         this.config = config;
     }
 
-    public void initialize() {
-        logger.info("Initializing database connection...");
-        try {
-            HikariConfig hikariConfig = new HikariConfig();
-            hikariConfig.setJdbcUrl(config.getDatabaseConfig().getJdbcUrl());
-            hikariConfig.setUsername(config.getDatabaseConfig().username());
-            hikariConfig.setPassword(config.getDatabaseConfig().password());
-            hikariConfig.setMaximumPoolSize(config.getDatabaseConfig().poolSize());
-            hikariConfig.setPoolName("BrennonPool");
+    @Override
+    public void enable() throws Exception {
+        HikariConfig hikariConfig = new HikariConfig();
+        hikariConfig.setJdbcUrl(config.jdbcUrl());
+        hikariConfig.setUsername(config.username());
+        hikariConfig.setPassword(config.password());
+        hikariConfig.setMaximumPoolSize(config.maxPoolSize());
 
-            this.dataSource = new HikariDataSource(hikariConfig);
-            logger.info("Database connection established successfully!");
-        } catch (Exception e) {
-            logger.error("Failed to initialize database connection!", e);
-            throw new RuntimeException("Failed to initialize database connection", e);
+        dataSource = new HikariDataSource(hikariConfig);
+
+        // Test connection
+        try (Connection conn = dataSource.getConnection()) {
+            logger.info("Successfully connected to database");
         }
     }
 
-    public void shutdown() {
+    @Override
+    public void disable() throws Exception {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
-            logger.info("Database connection closed successfully!");
         }
     }
 

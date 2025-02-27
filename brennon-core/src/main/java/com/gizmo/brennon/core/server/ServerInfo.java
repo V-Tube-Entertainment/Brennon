@@ -16,10 +16,11 @@ public record ServerInfo(
         int maxPlayers,
         int onlinePlayers,
         double tps,
+        double memoryUsage,
         double cpuUsage,
-        long memoryUsed,
-        long memoryMax,
-        Instant lastUpdate
+        long lastHeartbeat,
+        long uptime,
+        Instant createdAt
 ) {
     public boolean isOnline() {
         return status == ServerStatus.ONLINE;
@@ -30,6 +31,28 @@ public record ServerInfo(
     }
 
     public double getMemoryUsagePercent() {
-        return (double) memoryUsed / memoryMax * 100;
+        return memoryUsage;
+    }
+
+    public static ServerInfo empty(String id) {
+        return new ServerInfo(
+                id,
+                "Unknown",
+                "unknown",
+                "none",
+                "localhost",
+                25565,
+                false,
+                ServerStatus.OFFLINE,
+                Map.of(),
+                100,
+                0,
+                20.0,
+                0.0,
+                0.0,
+                0L,
+                0L,
+                Instant.now()
+        );
     }
 }

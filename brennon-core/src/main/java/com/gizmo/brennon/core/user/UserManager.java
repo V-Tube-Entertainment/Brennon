@@ -1,5 +1,8 @@
 package com.gizmo.brennon.core.user;
 
+import java.util.stream.Collectors;
+import com.gizmo.brennon.core.user.UserInfo;
+import com.gizmo.brennon.core.user.UserStatus;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.inject.Inject;
