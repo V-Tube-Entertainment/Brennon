@@ -1,24 +1,24 @@
 module brennon.core {
     // Required dependencies
-    requires transitive com.google.guice;
-    requires transitive org.slf4j;
-    requires transitive com.zaxxer.hikari;
-    requires transitive lettuce.core;
-    requires transitive net.kyori.adventure;
-    requires transitive net.kyori.adventure.text.minimessage;
-    requires transitive net.kyori.adventure.text.serializer.gson;
-    requires transitive org.spongepowered.configurate.hocon;
-    requires transitive org.spongepowered.configurate.gson;
-    requires transitive java.sql;
+    requires com.google.guice;
+    requires org.slf4j;
+    requires com.zaxxer.hikari;
+    requires io.lettuce.core;
+    requires net.kyori.adventure.api;
+    requires net.kyori.adventure.text.minimessage;
+    requires net.kyori.adventure.text.serializer.gson;
+    requires org.spongepowered.configurate.core;
+    requires org.spongepowered.configurate.hocon;
+    requires org.spongepowered.configurate.gson;
+    requires java.sql;
     requires com.google.gson;
     requires org.apache.commons.lang3;
     requires com.google.common;
     requires java.base;
     requires ch.qos.logback.classic;
     requires com.github.benmanes.caffeine;
-
-    // LuckPerms doesn't expose its module name properly, so we'll just use the classes directly
     requires static net.luckperms;
+    requires lettuce.core;
 
     // Exports
     exports com.gizmo.brennon.core;

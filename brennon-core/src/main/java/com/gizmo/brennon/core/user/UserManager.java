@@ -205,4 +205,9 @@ public class UserManager implements Service {
     public Map<UUID, NetworkUser> getOnlineUsers() {
         return Map.copyOf(onlineUsers);
     }
+
+    @Override
+    public void disable() throws Exception {
+        // Cleanup if needed
+    }
 }

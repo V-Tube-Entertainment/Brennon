@@ -114,4 +114,8 @@ public class LoadBalancer implements Service {
 
         return serverAssignments;
     }
+    @Override
+    public void disable() throws Exception {
+        // Cleanup if needed
+    }
 }

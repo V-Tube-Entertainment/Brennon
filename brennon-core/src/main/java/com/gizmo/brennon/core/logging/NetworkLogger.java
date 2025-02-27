@@ -133,4 +133,8 @@ public class NetworkLogger implements Service {
         }
         return entries;
     }
+    @Override
+    public void disable() throws Exception {
+        // Cleanup if needed
+    }
 }

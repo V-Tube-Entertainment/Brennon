@@ -167,4 +167,8 @@ public class ServerGroupManager implements Service {
             logger.error("Failed to delete server group", e);
         }
     }
+    @Override
+    public void disable() throws Exception {
+        // Cleanup if needed
+    }
 }

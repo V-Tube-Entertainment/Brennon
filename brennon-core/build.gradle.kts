@@ -3,6 +3,7 @@ plugins {
 }
 
 repositories {
+    mavenCentral()
     maven("https://repo.lucko.me/")
 }
 
@@ -58,10 +59,12 @@ dependencies {
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
     options.release.set(17)
-}
 
-tasks.test {
-    useJUnitPlatform()
+    // Remove the module-specific compiler args
+    options.compilerArgs.addAll(listOf(
+        "-Xlint:unchecked",
+        "-Xlint:deprecation"
+    ))
 }
 
 java {

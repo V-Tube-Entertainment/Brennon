@@ -6,6 +6,7 @@ import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
+import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;
 import org.slf4j.Logger;
 
 public class RedisManager {
@@ -50,4 +51,8 @@ public class RedisManager {
     public StatefulRedisConnection<String, String> getConnection() {
         return connection;
     }
+    public StatefulRedisPubSubConnection<String, String> createPubSubConnection() {
+        return client.connectPubSub();
+    }
+
 }

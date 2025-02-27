@@ -10,6 +10,7 @@ import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;
 import org.slf4j.Logger;
 
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
@@ -74,5 +75,16 @@ public class MessageBroker implements Service {
     public void unsubscribe(String channel) {
         subscribers.remove(channel);
         pubSubConnection.sync().unsubscribe(channel);
+    }
+
+    private void handleUserAction(UUID uuid, String server) {
+        // Update to handle the action with only uuid and server
+        if (server != null) {
+            // This is a join or switch action
+            userManager.handleUserJoin(uuid, "Unknown", "0.0.0.0", server);
+        } else {
+            // This is a quit action
+            userManager.handleUserQuit(uuid);
+        }
     }
 }
