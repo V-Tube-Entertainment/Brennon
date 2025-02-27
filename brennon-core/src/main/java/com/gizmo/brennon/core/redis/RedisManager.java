@@ -5,6 +5,7 @@ import com.google.inject.Inject;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.sync.RedisCommands;
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;
 import org.slf4j.Logger;
 
@@ -25,7 +26,7 @@ public class RedisManager implements Service {
         RedisURI redisUri = RedisURI.builder()
                 .withHost(config.host())
                 .withPort(config.port())
-                .withPassword(config.password())
+                .withPassword(config.password().isEmpty() ? null : config.password())
                 .withDatabase(config.database())
                 .build();
 
@@ -42,6 +43,10 @@ public class RedisManager implements Service {
         if (client != null) {
             client.shutdown();
         }
+    }
+
+    public RedisCommands<String, String> sync() {
+        return connection.sync();
     }
 
     public StatefulRedisConnection<String, String> getConnection() {

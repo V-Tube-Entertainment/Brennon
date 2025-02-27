@@ -204,7 +204,7 @@ public class UserManager implements Service {
 
             switch (action) {
                 case "JOIN" -> {
-                    if (parts.length >= 6) {
+                    if (parts.length >= 5) {
                         String username = parts[2];
                         String ipAddress = parts[3];
                         String server = parts[4];
