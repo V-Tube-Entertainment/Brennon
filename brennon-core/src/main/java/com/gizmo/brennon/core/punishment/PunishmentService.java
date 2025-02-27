@@ -4,6 +4,7 @@ import com.google.inject.Inject;
 import com.gizmo.brennon.core.database.DatabaseManager;
 import com.gizmo.brennon.core.redis.RedisManager;
 import com.gizmo.brennon.core.service.Service;
+import com.gizmo.brennon.core.scheduler.TaskScheduler;
 import org.slf4j.Logger;
 
 import java.sql.Connection;
@@ -20,12 +21,14 @@ public class PunishmentService implements Service {
     private final Logger logger;
     private final DatabaseManager databaseManager;
     private final RedisManager redisManager;
+    private final TaskScheduler scheduler;
 
     @Inject
-    public PunishmentService(Logger logger, DatabaseManager databaseManager, RedisManager redisManager) {
+    public PunishmentService(Logger logger, DatabaseManager databaseManager, RedisManager redisManager, TaskScheduler scheduler) {
         this.logger = logger;
         this.databaseManager = databaseManager;
         this.redisManager = redisManager;
+        this.scheduler = scheduler;
     }
 
     @Override
