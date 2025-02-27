@@ -1,6 +1,7 @@
 package com.gizmo.brennon.core.player.rank;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import java.util.HashMap;
@@ -8,31 +9,21 @@ import java.util.Map;
 
 public enum NetworkRank {
     // Management ranks
-    BOSSMAN("bossman", "BOSS", "#FF0000", 12000, true),
+    BOSSMAN("bossman", "bossman", "#FF0000", 12000, true),
     IT_GUY("it-guy", "IT Guy", "#FF5555", 12000, true),
     SERVERMANAGER("server-manager", "Server Manager", "#55FFFF", 11000, true),
     STAFFMANAGER("staff-manager", "Staff Manager", "#5555FF", 11000, true),
     MEDIAMANAGER("media-manager", "Media Manager", "#55FF55", 10500, true),
-
-    // Administrative ranks
     ADMIN("admin", "Admin", "#00FF00", 9000, true),
     DEV("dev", "Dev", "#FF55FF", 9000, true),
-    HEADBUILDER("head-builder", "Head Builder", "#FF5555", 9000, true),
-    JRADMIN("jr-admin", "Jr Admin", "#55FFFF", 8500, true),
-
-    // Moderation ranks
+    HEADBUILDER("head-builder", "HeadBuilder", "#FF5555", 9000, true),
+    JRADMIN("jr-admin", "JR. Admin", "#55FFFF", 8500, true),
     MOD("mod", "Mod", "#5555FF", 8000, true),
-    JRMOD("jr-mod", "Jr Mod", "#00FF00", 7500, true),
-
-    // Special ranks
-    BUILDER("builder", "Builder", "#FFFF55", 6000, true),
+    JRMOD("jr-mod", "JR. Mod", "#00FF00", 7500, true),
+    BUILDER("Builder", "Builder", "#FFFF55", 6000, true),
     BETATESTER("beta-tester", "Beta Tester", "#FFAA00", 5500, false),
-
-    // Donor ranks
     VIPPLUS("vip+", "VIP+", "#FF55FF", 1100, false),
     VIP("vip", "VIP", "#FF55FF", 1000, false),
-
-    // Default rank
     DEFAULT("default", "Default", "#AAAAAA", 0, false);
 
     private static final Map<String, NetworkRank> BY_GROUP_NAME = new HashMap<>();
@@ -67,7 +58,7 @@ public enum NetworkRank {
         return displayName;
     }
 
-    public String getColorHex() {
+    public String getColor() {
         return colorHex;
     }
 
@@ -83,31 +74,37 @@ public enum NetworkRank {
         return staff;
     }
 
-    public Component getPrefix() {
+    public TextComponent getPrefix() {
         return Component.text(displayName).color(textColor);
     }
 
-    public Component getPrefixWithBrackets() {
+    public TextComponent getPrefixWithBrackets() {
         return Component.text()
-                .append(Component.text("[").color(textColor))
+                .content("[")
+                .color(textColor)
                 .append(Component.text(displayName).color(textColor))
                 .append(Component.text("]").color(textColor))
                 .build();
     }
 
-    public Component getStyledPrefix() {
-        Component.Builder builder = Component.text()
-                .append(Component.text("[").color(textColor));
+    public TextComponent getStyledPrefix() {
+        TextComponent prefix = Component.text()
+                .content("[")
+                .color(textColor)
+                .build();
 
-        if (weight >= ADMIN.weight) {
-            builder.append(Component.text(displayName)
-                    .color(textColor)
-                    .decorate(TextDecoration.BOLD));
-        } else {
-            builder.append(Component.text(displayName).color(textColor));
-        }
+        TextComponent name = weight >= ADMIN.weight ?
+                Component.text(displayName)
+                        .color(textColor)
+                        .decorate(TextDecoration.BOLD) :
+                Component.text(displayName)
+                        .color(textColor);
 
-        return builder.append(Component.text("]").color(textColor)).build();
+        return Component.text()
+                .append(prefix)
+                .append(name)
+                .append(Component.text("]").color(textColor))
+                .build();
     }
 
     public static NetworkRank fromGroupName(String name) {
@@ -147,11 +144,33 @@ public enum NetworkRank {
         return this.weight >= SERVERMANAGER.weight;
     }
 
-    public Component colorize(String text) {
+    public TextComponent colorize(String text) {
         return Component.text(text).color(textColor);
     }
 
-    public Component getGradientText(String text) {
+    public TextComponent getTabListName(String username) {
+        return Component.text()
+                .append(getStyledPrefix())
+                .append(Component.text(" "))
+                .append(Component.text(username).color(textColor))
+                .build();
+    }
+
+    public TextComponent getChatFormat(String username, String message) {
+        return Component.text()
+                .append(getStyledPrefix())
+                .append(Component.text(" "))
+                .append(Component.text(username).color(textColor))
+                .append(Component.text(" » ").color(TextColor.color(0xAAAAAA)))
+                .append(Component.text(message).color(TextColor.color(0xFFFFFF)))
+                .build();
+    }
+
+    public boolean outranks(NetworkRank other) {
+        return this.weight > other.weight;
+    }
+
+    public TextComponent getGradientText(String text) {
         if (text == null || text.isEmpty()) return Component.empty();
 
         TextColor darker = TextColor.color(
@@ -160,9 +179,11 @@ public enum NetworkRank {
                 Math.max((int)(textColor.blue() * 0.8), 0)
         );
 
-        Component.Builder builder = Component.text();
-        for (int i = 0; i < text.length(); i++) {
-            float ratio = (float) i / (text.length() - 1);
+        TextComponent.Builder builder = Component.text();
+        int length = text.length();
+
+        for (int i = 0; i < length; i++) {
+            float ratio = (float) i / (length - 1);
             TextColor interpolated = TextColor.color(
                     interpolate(textColor.red(), darker.red(), ratio),
                     interpolate(textColor.green(), darker.green(), ratio),
@@ -170,37 +191,11 @@ public enum NetworkRank {
             );
             builder.append(Component.text(text.charAt(i)).color(interpolated));
         }
+
         return builder.build();
     }
 
     private int interpolate(int start, int end, float ratio) {
         return (int) (start * (1 - ratio) + end * ratio);
-    }
-
-    public boolean outranks(NetworkRank other) {
-        return this.weight > other.weight;
-    }
-
-    public boolean hasPermission(String permission) {
-        // This should be implemented with your permission system
-        return false;
-    }
-
-    public Component getTabListName(String username) {
-        return Component.text()
-                .append(getStyledPrefix())
-                .append(Component.text(" "))
-                .append(Component.text(username).color(textColor))
-                .build();
-    }
-
-    public Component getChatFormat(String username, String message) {
-        return Component.text()
-                .append(getStyledPrefix())
-                .append(Component.text(" "))
-                .append(Component.text(username).color(textColor))
-                .append(Component.text(" » ").color(TextColor.color(0xAAAAAA)))
-                .append(Component.text(message).color(TextColor.color(0xFFFFFF)))
-                .build();
     }
 }

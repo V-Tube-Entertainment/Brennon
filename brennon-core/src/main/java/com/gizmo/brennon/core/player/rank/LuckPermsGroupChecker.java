@@ -77,11 +77,12 @@ public class LuckPermsGroupChecker {
             return rank;
         }
 
-        // If direct lookup failed, try to find by weight
-        Optional<Integer> weight = group.getWeight();
-        if (weight.isPresent()) {
+        // Try to match by weight
+        OptionalInt weightOpt = group.getWeight();
+        if (weightOpt.isPresent()) {
+            int weight = weightOpt.getAsInt();
             for (NetworkRank r : NetworkRank.values()) {
-                if (r.getWeight() == weight.get()) {
+                if (r.getWeight() == weight) {
                     return r;
                 }
             }
@@ -126,10 +127,8 @@ public class LuckPermsGroupChecker {
             if (!existingGroups.contains(groupName)) {
                 commands.add(String.format("/lp creategroup %s", groupName));
                 commands.add(String.format("/lp group %s setweight %d", groupName, rank.getWeight()));
-                commands.add(String.format("/lp group %s setdisplayname %s",
-                        groupName, rank.getDisplayName()));
-                commands.add(String.format("/lp group %s setprefix \"%s\"",
-                        groupName, rank.getPrefix()));
+                commands.add(String.format("/lp group %s meta setprefix \"%s\"",
+                        groupName, rank.getColor() + rank.getDisplayName()));
             }
         }
         return commands;
