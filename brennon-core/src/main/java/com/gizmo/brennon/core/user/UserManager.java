@@ -1,14 +1,11 @@
 package com.gizmo.brennon.core.user;
 
-import java.util.stream.Collectors;
-import com.gizmo.brennon.core.user.UserInfo;
-import com.gizmo.brennon.core.user.UserStatus;
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import com.google.inject.Inject;
 import com.gizmo.brennon.core.database.DatabaseManager;
 import com.gizmo.brennon.core.messaging.MessageBroker;
 import com.gizmo.brennon.core.service.Service;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.inject.Inject;
 import org.slf4j.Logger;
 
 import java.sql.Connection;
@@ -18,6 +15,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class UserManager implements Service {
     private final Logger logger;
@@ -58,9 +56,12 @@ public class UserManager implements Service {
                 CREATE TABLE IF NOT EXISTS users (
                     uuid CHAR(36) PRIMARY KEY,
                     username VARCHAR(16) NOT NULL,
+                    display_name VARCHAR(48),
+                    locale VARCHAR(10) DEFAULT 'en_US',
                     first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    properties JSON NOT NULL
+                    metadata JSON NOT NULL DEFAULT '{}',
+                    properties JSON NOT NULL DEFAULT '{}'
                 )""")) {
                 stmt.executeUpdate();
             }
@@ -72,6 +73,7 @@ public class UserManager implements Service {
                     user_uuid CHAR(36) NOT NULL,
                     server_id VARCHAR(64) NOT NULL,
                     ip_address VARCHAR(45) NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'ONLINE',
                     joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     left_at TIMESTAMP,
                     FOREIGN KEY (user_uuid) REFERENCES users(uuid)
@@ -84,7 +86,11 @@ public class UserManager implements Service {
     private void loadOnlineUsers() {
         try (Connection conn = databaseManager.getDataSource().getConnection();
              PreparedStatement stmt = conn.prepareStatement("""
-                SELECT u.*, s.server_id, s.ip_address
+                SELECT 
+                    u.*, 
+                    s.server_id, 
+                    s.ip_address,
+                    s.status
                 FROM users u
                 JOIN user_sessions s ON u.uuid = s.user_uuid
                 WHERE s.left_at IS NULL
@@ -96,9 +102,12 @@ public class UserManager implements Service {
                 UserInfo userInfo = new UserInfo(
                         uuid,
                         rs.getString("username"),
+                        rs.getString("display_name"),
                         rs.getString("server_id"),
-                        UserStatus.ONLINE,
+                        UserStatus.valueOf(rs.getString("status")),
                         rs.getString("ip_address"),
+                        rs.getString("locale"),
+                        gson.fromJson(rs.getString("metadata"), Map.class),
                         gson.fromJson(rs.getString("properties"), Map.class),
                         rs.getTimestamp("first_seen").toInstant(),
                         rs.getTimestamp("last_seen").toInstant()
@@ -129,6 +138,10 @@ public class UserManager implements Service {
                         String server = data.get("server").getAsString();
                         handleUserSwitch(uuid, server);
                     }
+                    case "STATUS" -> {
+                        UserStatus status = UserStatus.valueOf(data.get("status").getAsString());
+                        updateUserStatus(uuid, status);
+                    }
                     default -> logger.warn("Unknown user action: {}", type);
                 }
             } catch (Exception e) {
@@ -139,28 +152,35 @@ public class UserManager implements Service {
 
     public void handleUserJoin(UUID uuid, String username, String ipAddress, String serverId) {
         try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            Instant now = Instant.now();
+
             // Update or insert user
             try (PreparedStatement stmt = conn.prepareStatement("""
-                INSERT INTO users (uuid, username, first_seen, last_seen, properties)
-                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}')
+                INSERT INTO users (uuid, username, display_name, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE 
                     username = ?,
-                    last_seen = CURRENT_TIMESTAMP
+                    last_seen = ?
                 """)) {
                 stmt.setString(1, uuid.toString());
                 stmt.setString(2, username);
                 stmt.setString(3, username);
+                stmt.setObject(4, now);
+                stmt.setObject(5, now);
+                stmt.setString(6, username);
+                stmt.setObject(7, now);
                 stmt.executeUpdate();
             }
 
             // Create new session
             try (PreparedStatement stmt = conn.prepareStatement("""
-                INSERT INTO user_sessions (user_uuid, server_id, ip_address)
-                VALUES (?, ?, ?)
+                INSERT INTO user_sessions (user_uuid, server_id, ip_address, status)
+                VALUES (?, ?, ?, ?)
                 """)) {
                 stmt.setString(1, uuid.toString());
                 stmt.setString(2, serverId);
                 stmt.setString(3, ipAddress);
+                stmt.setString(4, UserStatus.ONLINE.name());
                 stmt.executeUpdate();
             }
 
@@ -168,12 +188,15 @@ public class UserManager implements Service {
             UserInfo userInfo = new UserInfo(
                     uuid,
                     username,
+                    username,
                     serverId,
                     UserStatus.ONLINE,
                     ipAddress,
-                    Map.of(),
-                    Instant.now(),
-                    Instant.now()
+                    "en_US",
+                    new HashMap<>(),
+                    new HashMap<>(),
+                    now,
+                    now
             );
             users.put(uuid, userInfo);
 
@@ -191,23 +214,28 @@ public class UserManager implements Service {
 
     public void handleUserQuit(UUID uuid) {
         try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            Instant now = Instant.now();
+
             // Close active session
             try (PreparedStatement stmt = conn.prepareStatement("""
                 UPDATE user_sessions 
-                SET left_at = CURRENT_TIMESTAMP
+                SET left_at = ?, status = ?
                 WHERE user_uuid = ? AND left_at IS NULL
                 """)) {
-                stmt.setString(1, uuid.toString());
+                stmt.setObject(1, now);
+                stmt.setString(2, UserStatus.OFFLINE.name());
+                stmt.setString(3, uuid.toString());
                 stmt.executeUpdate();
             }
 
             // Update last seen
             try (PreparedStatement stmt = conn.prepareStatement("""
                 UPDATE users 
-                SET last_seen = CURRENT_TIMESTAMP
+                SET last_seen = ?
                 WHERE uuid = ?
                 """)) {
-                stmt.setString(1, uuid.toString());
+                stmt.setObject(1, now);
+                stmt.setString(2, uuid.toString());
                 stmt.executeUpdate();
             }
 
@@ -229,24 +257,28 @@ public class UserManager implements Service {
         if (user == null) return;
 
         try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            Instant now = Instant.now();
+
             // Close current session
             try (PreparedStatement stmt = conn.prepareStatement("""
                 UPDATE user_sessions 
-                SET left_at = CURRENT_TIMESTAMP
+                SET left_at = ?
                 WHERE user_uuid = ? AND left_at IS NULL
                 """)) {
-                stmt.setString(1, uuid.toString());
+                stmt.setObject(1, now);
+                stmt.setString(2, uuid.toString());
                 stmt.executeUpdate();
             }
 
             // Create new session
             try (PreparedStatement stmt = conn.prepareStatement("""
-                INSERT INTO user_sessions (user_uuid, server_id, ip_address)
-                VALUES (?, ?, ?)
+                INSERT INTO user_sessions (user_uuid, server_id, ip_address, status)
+                VALUES (?, ?, ?, ?)
                 """)) {
                 stmt.setString(1, uuid.toString());
                 stmt.setString(2, newServer);
                 stmt.setString(3, user.ipAddress());
+                stmt.setString(4, user.status().name());
                 stmt.executeUpdate();
             }
 
@@ -254,12 +286,15 @@ public class UserManager implements Service {
             UserInfo updatedUser = new UserInfo(
                     user.uuid(),
                     user.username(),
+                    user.displayName(),
                     newServer,
                     user.status(),
                     user.ipAddress(),
+                    user.locale(),
+                    user.metadata(),
                     user.properties(),
-                    user.firstSeen(),
-                    Instant.now()
+                    user.firstJoin(),
+                    now
             );
             users.put(uuid, updatedUser);
 
@@ -271,6 +306,49 @@ public class UserManager implements Service {
             messageBroker.publish("brennon:users", data);
         } catch (SQLException e) {
             logger.error("Failed to handle user switch", e);
+        }
+    }
+
+    public void updateUserStatus(UUID uuid, UserStatus newStatus) {
+        UserInfo user = users.get(uuid);
+        if (user == null) return;
+
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            // Update current session status
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                UPDATE user_sessions 
+                SET status = ?
+                WHERE user_uuid = ? AND left_at IS NULL
+                """)) {
+                stmt.setString(1, newStatus.name());
+                stmt.setString(2, uuid.toString());
+                stmt.executeUpdate();
+            }
+
+            // Update cache
+            UserInfo updatedUser = new UserInfo(
+                    user.uuid(),
+                    user.username(),
+                    user.displayName(),
+                    user.currentServer(),
+                    newStatus,
+                    user.ipAddress(),
+                    user.locale(),
+                    user.metadata(),
+                    user.properties(),
+                    user.firstJoin(),
+                    user.lastSeen()
+            );
+            users.put(uuid, updatedUser);
+
+            // Notify other servers
+            JsonObject data = new JsonObject();
+            data.addProperty("type", "STATUS_CHANGED");
+            data.addProperty("uuid", uuid.toString());
+            data.addProperty("status", newStatus.name());
+            messageBroker.publish("brennon:users", data);
+        } catch (SQLException e) {
+            logger.error("Failed to update user status", e);
         }
     }
 
@@ -288,11 +366,60 @@ public class UserManager implements Service {
                 .collect(Collectors.toUnmodifiableList());
     }
 
+    public Collection<UserInfo> getUsersByStatus(UserStatus status) {
+        return users.values().stream()
+                .filter(user -> status == user.status())
+                .collect(Collectors.toUnmodifiableList());
+    }
+
     public boolean isUserOnline(UUID uuid) {
         return users.containsKey(uuid);
     }
 
     public int getOnlineCount() {
         return users.size();
+    }
+
+    public int getOnlineCount(String serverId) {
+        return (int) users.values().stream()
+                .filter(user -> serverId.equals(user.currentServer()))
+                .count();
+    }
+
+    public void updateUserMetadata(UUID uuid, String key, String value) {
+        UserInfo user = users.get(uuid);
+        if (user == null) return;
+
+        Map<String, String> newMetadata = new HashMap<>(user.metadata());
+        newMetadata.put(key, value);
+
+        UserInfo updatedUser = new UserInfo(
+                user.uuid(),
+                user.username(),
+                user.displayName(),
+                user.currentServer(),
+                user.status(),
+                user.ipAddress(),
+                user.locale(),
+                newMetadata,
+                user.properties(),
+                user.firstJoin(),
+                user.lastSeen()
+        );
+        users.put(uuid, updatedUser);
+
+        // Update database
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                UPDATE users 
+                SET metadata = ?
+                WHERE uuid = ?
+                """)) {
+            stmt.setString(1, gson.toJson(newMetadata));
+            stmt.setString(2, uuid.toString());
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            logger.error("Failed to update user metadata", e);
+        }
     }
 }

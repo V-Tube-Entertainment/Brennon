@@ -1,6 +1,7 @@
 package com.gizmo.brennon.core.punishment.evidence;
 
 import java.util.UUID;
+import java.util.List;
 
 public class EvidenceManager {
     public void attachEvidence(long punishmentId, String type,
