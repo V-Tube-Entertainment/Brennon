@@ -11,10 +11,9 @@ allprojects {
         mavenCentral()
         maven("https://repo.papermc.io/repository/maven-public/")
         maven("https://oss.sonatype.org/content/repositories/snapshots")
-        // Add LuckPerms repository
-        maven("https://repo.lucko.me/")
-        // Add Adventure repository
-        maven("https://repo.papermc.io/repository/maven-public/")
+        maven("https://repo.lucko.me/") // LuckPerms repository
+        maven("https://libraries.minecraft.net") // Minecraft libraries
+        maven("https://repo.spongepowered.org/repository/maven-public/") // Configurate
     }
 }
 
@@ -30,5 +29,10 @@ subprojects {
 
     tasks.withType<JavaCompile> {
         options.encoding = "UTF-8"
+        options.release.set(17)
+    }
+
+    tasks.withType<Test> {
+        useJUnitPlatform()
     }
 }
