@@ -22,9 +22,10 @@ dependencies {
 
     // Adventure API
     api(platform("net.kyori:adventure-bom:4.15.0"))
-    api("net.kyori:adventure-api")
-    api("net.kyori:adventure-text-minimessage")
-    api("net.kyori:adventure-text-serializer-gson")
+    api("net.kyori:adventure-api:4.15.0")
+    api("net.kyori:adventure-text-minimessage:4.15.0")
+    api("net.kyori:adventure-text-serializer-gson:4.15.0")
+    api("net.kyori:adventure-text-serializer-legacy:4.15.0")
 
     // Configuration
     api("org.spongepowered:configurate-hocon:4.1.2")
@@ -72,7 +73,4 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(17))
     }
-
-    withJavadocJar()
-    withSourcesJar()
 }

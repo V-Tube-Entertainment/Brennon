@@ -81,11 +81,12 @@ public class ServerManager implements Service {
                         gson.fromJson(rs.getString("properties"), Map.class),
                         100, // Max players
                         0,   // Online players
-                        0.0, // TPS
+                        20.0, // TPS
                         0.0, // Memory usage
+                        0.0, // CPU usage
                         0L,  // Last heartbeat
                         0L,  // Uptime
-                        Instant.now()
+                        rs.getTimestamp("created_at").toInstant()
                 );
                 servers.put(server.id(), server);
             }
@@ -132,6 +133,7 @@ public class ServerManager implements Service {
                     data.get("onlinePlayers").getAsInt(),
                     data.get("tps").getAsDouble(),
                     data.get("memoryUsage").getAsDouble(),
+                    data.get("cpuUsage").getAsDouble(),
                     System.currentTimeMillis(),
                     data.get("uptime").getAsLong(),
                     server.createdAt()
@@ -160,6 +162,7 @@ public class ServerManager implements Service {
                     server.onlinePlayers(),
                     server.tps(),
                     server.memoryUsage(),
+                    server.cpuUsage(),
                     server.lastHeartbeat(),
                     server.uptime(),
                     server.createdAt()
@@ -185,12 +188,39 @@ public class ServerManager implements Service {
                     0,
                     0.0,
                     0.0,
+                    0.0,
                     0L,
                     0L,
                     server.createdAt()
             );
             servers.put(serverId, offlineServer);
         }
+    }
+
+    public Optional<ServerInfo> getServer(String id) {
+        return Optional.ofNullable(servers.get(id));
+    }
+
+    public Collection<ServerInfo> getAllServers() {
+        return Collections.unmodifiableCollection(servers.values());
+    }
+
+    public Collection<ServerInfo> getServersByGroup(String group) {
+        return servers.values().stream()
+                .filter(server -> group.equals(server.group()))
+                .collect(Collectors.toUnmodifiableList());
+    }
+
+    public Collection<ServerInfo> getServersByType(String type) {
+        return servers.values().stream()
+                .filter(server -> type.equals(server.type()))
+                .collect(Collectors.toUnmodifiableList());
+    }
+
+    public Collection<ServerInfo> getOnlineServers() {
+        return servers.values().stream()
+                .filter(ServerInfo::isOnline)
+                .collect(Collectors.toUnmodifiableList());
     }
 
     public void registerServer(String id, String name, String type, String group,
@@ -224,6 +254,7 @@ public class ServerManager implements Service {
                     Map.of(),
                     100,
                     0,
+                    20.0,
                     0.0,
                     0.0,
                     0L,
@@ -261,29 +292,110 @@ public class ServerManager implements Service {
         }
     }
 
-    public Optional<ServerInfo> getServer(String id) {
-        return Optional.ofNullable(servers.get(id));
+    public void updateServerGroup(String serverId, String newGroup) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "UPDATE servers SET server_group = ? WHERE id = ?")) {
+
+            stmt.setString(1, newGroup);
+            stmt.setString(2, serverId);
+
+            if (stmt.executeUpdate() > 0) {
+                ServerInfo existingServer = servers.get(serverId);
+                if (existingServer != null) {
+                    ServerInfo updatedServer = new ServerInfo(
+                            existingServer.id(),
+                            existingServer.name(),
+                            existingServer.type(),
+                            newGroup,
+                            existingServer.host(),
+                            existingServer.port(),
+                            existingServer.restricted(),
+                            existingServer.status(),
+                            existingServer.properties(),
+                            existingServer.maxPlayers(),
+                            existingServer.onlinePlayers(),
+                            existingServer.tps(),
+                            existingServer.memoryUsage(),
+                            existingServer.cpuUsage(),
+                            existingServer.lastHeartbeat(),
+                            existingServer.uptime(),
+                            existingServer.createdAt()
+                    );
+                    servers.put(serverId, updatedServer);
+
+                    // Notify other servers
+                    JsonObject data = new JsonObject();
+                    data.addProperty("type", "SERVER_GROUP_UPDATED");
+                    data.addProperty("serverId", serverId);
+                    data.addProperty("group", newGroup);
+                    messageBroker.publish("brennon:servers", data);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to update server group", e);
+        }
     }
 
-    public Collection<ServerInfo> getAllServers() {
-        return Collections.unmodifiableCollection(servers.values());
+    public void updateServerProperties(String serverId, Map<String, String> properties) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "UPDATE servers SET properties = ? WHERE id = ?")) {
+
+            stmt.setString(1, gson.toJson(properties));
+            stmt.setString(2, serverId);
+
+            if (stmt.executeUpdate() > 0) {
+                ServerInfo existingServer = servers.get(serverId);
+                if (existingServer != null) {
+                    ServerInfo updatedServer = new ServerInfo(
+                            existingServer.id(),
+                            existingServer.name(),
+                            existingServer.type(),
+                            existingServer.group(),
+                            existingServer.host(),
+                            existingServer.port(),
+                            existingServer.restricted(),
+                            existingServer.status(),
+                            new HashMap<>(properties), // Create new map to ensure immutability
+                            existingServer.maxPlayers(),
+                            existingServer.onlinePlayers(),
+                            existingServer.tps(),
+                            existingServer.memoryUsage(),
+                            existingServer.cpuUsage(),
+                            existingServer.lastHeartbeat(),
+                            existingServer.uptime(),
+                            existingServer.createdAt()
+                    );
+                    servers.put(serverId, updatedServer);
+
+                    // Notify other servers
+                    JsonObject data = new JsonObject();
+                    data.addProperty("type", "SERVER_PROPERTIES_UPDATED");
+                    data.addProperty("serverId", serverId);
+                    data.add("properties", gson.toJsonTree(properties));
+                    messageBroker.publish("brennon:servers", data);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to update server properties", e);
+        }
     }
 
-    public Collection<ServerInfo> getServersByGroup(String group) {
-        return servers.values().stream()
-                .filter(server -> group.equals(server.group()))
-                .collect(Collectors.toUnmodifiableList());
+    public boolean isServerOnline(String serverId) {
+        return getServer(serverId)
+                .map(ServerInfo::isOnline)
+                .orElse(false);
     }
 
-    public Collection<ServerInfo> getServersByType(String type) {
-        return servers.values().stream()
-                .filter(server -> type.equals(server.type()))
-                .collect(Collectors.toUnmodifiableList());
+    public int getOnlineCount() {
+        return (int) servers.values().stream()
+                .filter(ServerInfo::isOnline)
+                .count();
     }
 
-    public Collection<ServerInfo> getOnlineServers() {
-        return servers.values().stream()
-                .filter(server -> server.status() == ServerStatus.ONLINE)
-                .collect(Collectors.toUnmodifiableList());
+    public boolean hasAvailableServers(String group) {
+        return getServersByGroup(group).stream()
+                .anyMatch(server -> server.isOnline() && !server.isFull());
     }
 }
