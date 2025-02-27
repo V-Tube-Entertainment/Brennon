@@ -1,5 +1,6 @@
 package com.gizmo.brennon.core.punishment;
 
+import com.gizmo.brennon.core.scheduler.ScheduledTask;
 import com.google.inject.Inject;
 import com.gizmo.brennon.core.database.DatabaseManager;
 import com.gizmo.brennon.core.redis.RedisManager;
@@ -22,6 +23,7 @@ public class PunishmentService implements Service {
     private final DatabaseManager databaseManager;
     private final RedisManager redisManager;
     private final TaskScheduler scheduler;
+    private ScheduledTask expirationTask;
 
     @Inject
     public PunishmentService(Logger logger, DatabaseManager databaseManager, RedisManager redisManager, TaskScheduler scheduler) {
@@ -34,13 +36,26 @@ public class PunishmentService implements Service {
     @Override
     public void enable() throws Exception {
         initializeDatabase();
-        // Schedule expired punishment cleanup every 5 minutes
-        scheduler.scheduleAtFixedRate(this::handleExpiredPunishments, 5, 5, TimeUnit.MINUTES);
+        // Schedule expired punishment cleanup every 5 minutes using scheduleRepeating
+        expirationTask = scheduler.scheduleRepeating(
+                () -> {
+                    try {
+                        handleExpiredPunishments();
+                    } catch (Exception e) {
+                        logger.error("Error handling expired punishments", e);
+                    }
+                },
+                5, // initial delay
+                5, // period
+                TimeUnit.MINUTES
+        );
     }
 
     @Override
     public void disable() throws Exception {
-        // Cleanup if needed
+        if (expirationTask != null) {
+            scheduler.cancelTask(expirationTask);
+        }
     }
 
     private void initializeDatabase() throws Exception {
