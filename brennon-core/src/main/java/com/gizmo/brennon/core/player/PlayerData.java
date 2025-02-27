@@ -1,63 +1,54 @@
 package com.gizmo.brennon.core.player;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class PlayerData {
-    private static final Gson GSON = new GsonBuilder().create();
+    private static final Gson gson = new Gson();
 
     private final UUID uuid;
     private String username;
-    private Instant firstJoin;
+    private PlayerRank rank;
     private Instant lastSeen;
     private long playtime;
-    private String lastServer;
-    private final Map<String, Object> settings;
-    private final Map<String, Long> statistics;
+    private PlayerSettings settings;
+    private PlayerStats statistics;
 
-    public PlayerData(UUID uuid) {
+    public PlayerData(UUID uuid, String username) {
         this.uuid = uuid;
-        this.firstJoin = Instant.now();
+        this.username = username;
+        this.rank = PlayerRank.DEFAULT;
         this.lastSeen = Instant.now();
-        this.settings = new ConcurrentHashMap<>();
-        this.statistics = new ConcurrentHashMap<>();
+        this.playtime = 0;
+        this.settings = new PlayerSettings();
+        this.statistics = new PlayerStats();
     }
 
     public static PlayerData fromResultSet(ResultSet rs) throws SQLException {
-        PlayerData data = new PlayerData(UUID.fromString(rs.getString("uuid")));
-        data.username = rs.getString("username");
-        data.firstJoin = rs.getTimestamp("first_join").toInstant();
+        UUID uuid = UUID.fromString(rs.getString("uuid"));
+        String username = rs.getString("username");
+        PlayerData data = new PlayerData(uuid, username);
+
+        data.rank = PlayerRank.fromString(rs.getString("rank"));
         data.lastSeen = rs.getTimestamp("last_seen").toInstant();
         data.playtime = rs.getLong("playtime");
-        data.lastServer = rs.getString("last_server");
 
-        // Parse JSON data
         String settingsJson = rs.getString("settings");
-        String statsJson = rs.getString("statistics");
-
         if (settingsJson != null) {
-            data.settings.putAll(GSON.fromJson(settingsJson,
-                    new TypeToken<Map<String, Object>>(){}.getType()));
+            data.settings = gson.fromJson(settingsJson, PlayerSettings.class);
         }
 
+        String statsJson = rs.getString("statistics");
         if (statsJson != null) {
-            data.statistics.putAll(GSON.fromJson(statsJson,
-                    new TypeToken<Map<String, Long>>(){}.getType()));
+            data.statistics = gson.fromJson(statsJson, PlayerStats.class);
         }
 
         return data;
     }
 
-    // Getters and setters
     public UUID getUuid() {
         return uuid;
     }
@@ -70,8 +61,12 @@ public class PlayerData {
         this.username = username;
     }
 
-    public Instant getFirstJoin() {
-        return firstJoin;
+    public PlayerRank getRank() {
+        return rank;
+    }
+
+    public void setRank(PlayerRank rank) {
+        this.rank = rank;
     }
 
     public Instant getLastSeen() {
@@ -86,43 +81,23 @@ public class PlayerData {
         return playtime;
     }
 
-    public void updatePlaytime(long additionalTime) {
-        this.playtime += additionalTime;
-    }
-
-    public String getLastServer() {
-        return lastServer;
-    }
-
-    public void setLastServer(String lastServer) {
-        this.lastServer = lastServer;
-    }
-
-    public Object getSetting(String key) {
-        return settings.get(key);
-    }
-
-    public void setSetting(String key, Object value) {
-        settings.put(key, value);
-    }
-
-    public long getStatistic(String key) {
-        return statistics.getOrDefault(key, 0L);
-    }
-
-    public void incrementStatistic(String key) {
-        statistics.compute(key, (k, v) -> (v == null) ? 1 : v + 1);
-    }
-
-    public void setStatistic(String key, long value) {
-        statistics.put(key, value);
+    public void setPlaytime(long playtime) {
+        this.playtime = playtime;
     }
 
     public String getSettingsJson() {
-        return GSON.toJson(settings);
+        return gson.toJson(settings);
     }
 
     public String getStatisticsJson() {
-        return GSON.toJson(statistics);
+        return gson.toJson(statistics);
+    }
+
+    public PlayerSettings getSettings() {
+        return settings;
+    }
+
+    public PlayerStats getStatistics() {
+        return statistics;
     }
 }
