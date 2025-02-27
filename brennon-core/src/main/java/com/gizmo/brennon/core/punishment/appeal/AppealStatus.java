@@ -1,8 +1,8 @@
-package com.gizmo.brennon.core.punishment;
+package com.gizmo.brennon.core.punishment.appeal;
 
 public enum AppealStatus {
     PENDING,
     APPROVED,
     DENIED,
-    UNDER_REVIEW
+    ESCALATED
 }

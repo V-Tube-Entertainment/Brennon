@@ -1,5 +1,7 @@
 package com.gizmo.brennon.core.punishment;
 
+import com.gizmo.brennon.core.punishment.appeal.AppealStatus;
+
 import java.time.Instant;
 import java.util.UUID;
 
