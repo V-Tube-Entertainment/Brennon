@@ -15,8 +15,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 @Singleton
 public class PlayerDataManager implements Service {
@@ -40,29 +42,20 @@ public class PlayerDataManager implements Service {
 
     @Override
     public void enable() throws Exception {
-        // Initialize database tables
         createTables();
-
-        // Subscribe to Redis channels for player data updates
-        subscribeToRedisChannels();
-
+        setupRedisSubscriptions();
         logger.info("PlayerDataManager enabled successfully");
     }
 
     @Override
     public void disable() throws Exception {
-        // Save all cached player data
         saveAllPlayers();
-
-        // Clear cache
         playerCache.clear();
-
         logger.info("PlayerDataManager disabled successfully");
     }
 
     private void createTables() throws Exception {
         try (Connection conn = databaseManager.getConnection()) {
-            // Players table
             conn.createStatement().execute("""
                 CREATE TABLE IF NOT EXISTS players (
                     uuid VARCHAR(36) PRIMARY KEY,
@@ -78,22 +71,15 @@ public class PlayerDataManager implements Service {
         }
     }
 
-    private void subscribeToRedisChannels() {
-        redisManager.subscribe("brennon:player:data", message -> {
-            try {
-                PlayerDataUpdate update = gson.fromJson(message, PlayerDataUpdate.class);
-                handlePlayerUpdate(update);
-            } catch (Exception e) {
-                logger.error("Error handling player data update", e);
-            }
-        });
+    public Optional<BrennonPlayer> getPlayer(UUID uuid) {
+        BrennonPlayer player = playerCache.get(uuid);
+        if (player != null) {
+            return Optional.of(player);
+        }
+        return loadPlayer(uuid);
     }
 
-    public BrennonPlayer getPlayer(UUID uuid) {
-        return playerCache.computeIfAbsent(uuid, this::loadPlayer);
-    }
-
-    private BrennonPlayer loadPlayer(UUID uuid) {
+    private Optional<BrennonPlayer> loadPlayer(UUID uuid) {
         try (Connection conn = databaseManager.getConnection()) {
             PreparedStatement stmt = conn.prepareStatement(
                     "SELECT * FROM players WHERE uuid = ?"
@@ -106,27 +92,42 @@ public class PlayerDataManager implements Service {
                         uuid,
                         rs.getString("username")
                 );
+
                 player.setDisplayName(rs.getString("display_name"));
                 player.setFirstJoin(rs.getTimestamp("first_join").toInstant());
                 player.setLastSeen(rs.getTimestamp("last_seen").toInstant());
 
                 // Load LuckPerms data
-                User lpUser = luckPerms.getUserManager().loadUser(uuid).join();
+                User lpUser = luckPerms.getUserManager().loadUser(uuid)
+                        .get(5, TimeUnit.SECONDS);
                 player.setLuckPermsUser(lpUser);
-                player.setPrimaryGroup(luckPerms.getGroupManager().getGroup(lpUser.getPrimaryGroup()));
 
                 // Load JSON data
-                PlayerStats stats = gson.fromJson(rs.getString("stats"), PlayerStats.class);
-                PlayerSettings settings = gson.fromJson(rs.getString("settings"), PlayerSettings.class);
-                if (stats != null) player.getStats().copyFrom(stats);
-                if (settings != null) player.getSettings().copyFrom(settings);
+                String statsJson = rs.getString("stats");
+                String settingsJson = rs.getString("settings");
+                String metadataJson = rs.getString("metadata");
 
-                return player;
+                if (statsJson != null) {
+                    PlayerStats stats = gson.fromJson(statsJson, PlayerStats.class);
+                    player.getStats().copyFrom(stats);
+                }
+                if (settingsJson != null) {
+                    PlayerSettings settings = gson.fromJson(settingsJson, PlayerSettings.class);
+                    player.getSettings().copyFrom(settings);
+                }
+                if (metadataJson != null) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> metadata = gson.fromJson(metadataJson, Map.class);
+                    metadata.forEach(player::setMetadata);
+                }
+
+                playerCache.put(uuid, player);
+                return Optional.of(player);
             }
         } catch (Exception e) {
             logger.error("Error loading player data for " + uuid, e);
         }
-        return null;
+        return Optional.empty();
     }
 
     public void savePlayer(BrennonPlayer player) {
@@ -150,15 +151,32 @@ public class PlayerDataManager implements Service {
             stmt.setObject(5, player.getLastSeen());
             stmt.setString(6, gson.toJson(player.getStats()));
             stmt.setString(7, gson.toJson(player.getSettings()));
-            stmt.setString(8, gson.toJson(player.getMetadata()));
+            stmt.setString(8, gson.toJson(player.getAllMetadata()));
 
             stmt.executeUpdate();
-
-            // Notify other servers about the update
             notifyUpdate(player);
         } catch (Exception e) {
             logger.error("Error saving player data for " + player.getUniqueId(), e);
         }
+    }
+
+    private void saveAllPlayers() {
+        playerCache.values().forEach(this::savePlayer);
+    }
+
+    public void invalidateCache(UUID uuid) {
+        playerCache.remove(uuid);
+    }
+
+    private void setupRedisSubscriptions() {
+        redisManager.subscribe("brennon:player:data", message -> {
+            try {
+                PlayerDataUpdate update = gson.fromJson(message, PlayerDataUpdate.class);
+                handlePlayerUpdate(update);
+            } catch (Exception e) {
+                logger.error("Error handling player data update", e);
+            }
+        });
     }
 
     private void notifyUpdate(BrennonPlayer player) {
@@ -172,20 +190,11 @@ public class PlayerDataManager implements Service {
     }
 
     private void handlePlayerUpdate(PlayerDataUpdate update) {
-        BrennonPlayer player = playerCache.get(update.uuid());
-        if (player != null) {
+        getPlayer(update.uuid()).ifPresent(player -> {
             player.setCurrentServer(update.server());
             player.setOnline(update.online());
             player.setLastSeen(Instant.now());
-        }
-    }
-
-    private void saveAllPlayers() {
-        playerCache.values().forEach(this::savePlayer);
-    }
-
-    public void invalidateCache(UUID uuid) {
-        playerCache.remove(uuid);
+        });
     }
 
     private record PlayerDataUpdate(UUID uuid, String username, String server, boolean online) {}
