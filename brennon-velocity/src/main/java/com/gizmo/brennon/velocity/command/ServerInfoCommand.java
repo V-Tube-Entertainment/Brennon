@@ -37,31 +37,44 @@ public class ServerInfoCommand implements SimpleCommand {
         }
 
         RegisteredServer server = targetServer.get();
-        Component message = Component.text()
-                .append(Component.text("Server Information: ", NamedTextColor.GOLD))
-                .append(Component.text(serverName, NamedTextColor.YELLOW))
-                .append(Component.newline())
-                .append(Component.text("Players: ", NamedTextColor.GOLD))
-                .append(Component.text(server.getPlayersConnected().size(), NamedTextColor.WHITE))
-                .append(Component.newline())
-                .append(Component.text("Address: ", NamedTextColor.GOLD))
-                .append(Component.text(server.getServerInfo().getAddress().toString(), NamedTextColor.WHITE))
-                .build();
+        List<Component> components = new ArrayList<>();
 
-        invocation.source().sendMessage(message);
+        // Add server information
+        components.add(Component.text("Server Information: ", NamedTextColor.GOLD));
+        components.add(Component.text(serverName, NamedTextColor.YELLOW));
+        components.add(Component.newline());
+        components.add(Component.text("Players: ", NamedTextColor.GOLD));
+        components.add(Component.text(server.getPlayersConnected().size(), NamedTextColor.WHITE));
+        components.add(Component.newline());
+        components.add(Component.text("Address: ", NamedTextColor.GOLD));
+        components.add(Component.text(server.getServerInfo().getAddress().toString(), NamedTextColor.WHITE));
 
-        // Add player list if the source has permission
+        // Combine and send server info
+        Component serverInfo = Component.empty();
+        for (Component component : components) {
+            serverInfo = serverInfo.append(component);
+        }
+        invocation.source().sendMessage(serverInfo);
+
+        // Show player list if permitted
         if (invocation.source().hasPermission("brennon.command.serverinfo.players")) {
-            Component playerList = Component.text()
-                    .append(Component.text("Online Players:", NamedTextColor.GOLD))
-                    .append(Component.newline());
+            List<Component> playerComponents = new ArrayList<>();
 
-            for (Player player : server.getPlayersConnected()) {
-                playerList = playerList.append(Component.text("- ", NamedTextColor.GRAY))
-                        .append(Component.text(player.getUsername(), NamedTextColor.WHITE))
-                        .append(Component.newline());
+            playerComponents.add(Component.newline());
+            playerComponents.add(Component.text("Online Players:", NamedTextColor.GOLD));
+            playerComponents.add(Component.newline());
+
+            server.getPlayersConnected().forEach(player -> {
+                playerComponents.add(Component.text("- ", NamedTextColor.GRAY));
+                playerComponents.add(Component.text(player.getUsername(), NamedTextColor.WHITE));
+                playerComponents.add(Component.newline());
+            });
+
+            // Combine and send player list
+            Component playerList = Component.empty();
+            for (Component component : playerComponents) {
+                playerList = playerList.append(component);
             }
-
             invocation.source().sendMessage(playerList);
         }
     }

@@ -1,7 +1,6 @@
 package com.gizmo.brennon.velocity.command;
 
 import com.velocitypowered.api.command.SimpleCommand;
-import com.velocitypowered.api.proxy.Player;
 import com.gizmo.brennon.velocity.BrennonVelocity;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -62,23 +61,26 @@ public class NetworkCommand implements SimpleCommand {
             return;
         }
 
-        Component.Builder statusBuilder = Component.text()
-                .append(Component.text("Network Status", NamedTextColor.GOLD))
-                .append(Component.newline());
+        List<Component> components = new ArrayList<>();
+        components.add(Component.text("Network Status", NamedTextColor.GOLD));
+        components.add(Component.newline());
 
         plugin.getProxyManager().getServers().forEach((name, server) -> {
-            statusBuilder.append(Component.text(name + ": ", NamedTextColor.YELLOW))
-                    .append(Component.text(server.getPlayersConnected().size() + " players", NamedTextColor.WHITE))
-                    .append(Component.newline());
+            components.add(Component.text(name + ": ", NamedTextColor.YELLOW));
+            components.add(Component.text(server.getPlayersConnected().size() + " players", NamedTextColor.WHITE));
+            components.add(Component.newline());
         });
 
-        invocation.source().sendMessage(statusBuilder.build());
+        Component finalMessage = Component.empty();
+        for (Component component : components) {
+            finalMessage = finalMessage.append(component);
+        }
+
+        invocation.source().sendMessage(finalMessage);
     }
-}
 
     private void reloadNetwork(Invocation invocation) {
         try {
-            // For now, just notify that reload isn't implemented
             invocation.source().sendMessage(Component.text("Network reload not implemented yet!", NamedTextColor.YELLOW));
         } catch (Exception e) {
             invocation.source().sendMessage(Component.text("Failed to reload network configuration!", NamedTextColor.RED));

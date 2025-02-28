@@ -41,7 +41,6 @@ public class ServerCommand implements SimpleCommand {
             return;
         }
 
-        // Check if player has permission
         if (!player.hasPermission("brennon.server." + serverName)) {
             player.sendMessage(Component.text("You don't have permission to join this server!", NamedTextColor.RED));
             return;
@@ -69,19 +68,28 @@ public class ServerCommand implements SimpleCommand {
     }
 
     private void showServerList(Player player) {
-        Component.Builder builder = Component.text()
-                .append(Component.text("Available servers:", NamedTextColor.GOLD))
-                .append(Component.newline());
+        List<Component> components = new ArrayList<>();
 
+        // Add header
+        components.add(Component.text("Available servers:", NamedTextColor.GOLD));
+        components.add(Component.newline());
+
+        // Add server entries
         plugin.getProxyManager().getServers().forEach((id, server) -> {
             if (player.hasPermission("brennon.server." + id)) {
                 int playerCount = server.getPlayersConnected().size();
-                builder.append(Component.text("- " + id + " ", NamedTextColor.YELLOW))
-                        .append(Component.text("(" + playerCount + " players)", NamedTextColor.GRAY))
-                        .append(Component.newline());
+                components.add(Component.text("- " + id + " ", NamedTextColor.YELLOW));
+                components.add(Component.text("(" + playerCount + " players)", NamedTextColor.GRAY));
+                components.add(Component.newline());
             }
         });
 
-        player.sendMessage(builder.build());
+        // Combine all components
+        Component finalMessage = Component.empty();
+        for (Component component : components) {
+            finalMessage = finalMessage.append(component);
+        }
+
+        player.sendMessage(finalMessage);
     }
 }

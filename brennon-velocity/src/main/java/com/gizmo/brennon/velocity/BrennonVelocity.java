@@ -8,25 +8,34 @@ import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.gizmo.brennon.core.BrennonCore;
-import com.gizmo.brennon.velocity.listener.ConnectionListener;
-import com.gizmo.brennon.velocity.listener.ServerListener;
+import com.gizmo.brennon.velocity.command.VelocityCommandManager;
+import com.gizmo.brennon.velocity.config.ConfigManager;
+import com.gizmo.brennon.velocity.chat.StaffChatManager;
 import com.gizmo.brennon.velocity.manager.ProxyManager;
-import org.slf4j.Logger;
+import com.gizmo.brennon.velocity.player.PlayerManager;
+import com.gizmo.brennon.velocity.listener.ConnectionListener;
+import com.gizmo.brennon.velocity.listener.ChatListener;
 
 import java.nio.file.Path;
+import java.util.logging.Logger;
 
 @Plugin(
         id = "brennon",
         name = "Brennon",
-        version = "1.0.0-SNAPSHOT",
-        description = "Network Management System for Velocity",
-        authors = {"Gizmo0320"}
+        version = "1.0-SNAPSHOT",
+        authors = {"Gizmo0320"},
+        dependencies = {}
 )
 public class BrennonVelocity {
     private final ProxyServer server;
     private final Logger logger;
     private final Path dataDirectory;
+
     private BrennonCore core;
+    private ConfigManager configManager;
+    private VelocityCommandManager commandManager;
+    private StaffChatManager staffChatManager;
+    private PlayerManager playerManager;
     private ProxyManager proxyManager;
 
     @Inject
@@ -37,49 +46,41 @@ public class BrennonVelocity {
     }
 
     @Subscribe
-    public void onProxyInitialization(ProxyInitializeEvent event) {
-        // Initialize BrennonCore
-        core = new BrennonCore(dataDirectory);
-        core.start().thenRun(() -> {
-            // Initialize proxy manager
-            proxyManager = new ProxyManager(server, core);
+    public void onProxyInitialize(ProxyInitializeEvent event) {
+        // Initialize core first
+        this.core = new BrennonCore(dataDirectory);
 
-            // Register listeners
-            server.getEventManager().register(this, new ConnectionListener(this));
-            server.getEventManager().register(this, new ServerListener(core, proxyManager));
+        // Initialize managers
+        this.configManager = new ConfigManager(this);
+        this.commandManager = new VelocityCommandManager(this);
+        this.staffChatManager = new StaffChatManager(this);
+        this.playerManager = new PlayerManager(this);
+        this.proxyManager = new ProxyManager(server, core);
 
-            logger.info("Brennon-Velocity has been enabled!");
-        }).exceptionally(throwable -> {
-            logger.error("Failed to initialize Brennon-Velocity", throwable);
-            return null;
-        });
+        // Register listeners
+        server.getEventManager().register(this, new ChatListener(this));
+        server.getEventManager().register(this, new ConnectionListener(this));
+
+        logger.info("Brennon has been enabled!");
     }
 
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
         if (core != null) {
-            core.stop().thenRun(() ->
-                    logger.info("Brennon-Velocity has been disabled!")
-            ).exceptionally(throwable -> {
-                logger.error("Error while disabling Brennon-Velocity", throwable);
-                return null;
-            });
+            // If BrennonCore needs cleanup, do it here
+            logger.info("Shutting down Brennon Core...");
         }
+        logger.info("Brennon has been disabled!");
     }
 
-    public ProxyServer getServer() {
-        return server;
-    }
-
-    public Logger getLogger() {
-        return logger;
-    }
-
-    public BrennonCore getCore() {
-        return core;
-    }
-
-    public ProxyManager getProxyManager() {
-        return proxyManager;
-    }
+    // Getters for all managers
+    public ProxyServer getServer() { return server; }
+    public Logger getLogger() { return logger; }
+    public Path getDataDirectory() { return dataDirectory; }
+    public BrennonCore getCore() { return core; }
+    public ConfigManager getConfigManager() { return configManager; }
+    public VelocityCommandManager getCommandManager() { return commandManager; }
+    public StaffChatManager getStaffChatManager() { return staffChatManager; }
+    public PlayerManager getPlayerManager() { return playerManager; }
+    public ProxyManager getProxyManager() { return proxyManager; }
 }

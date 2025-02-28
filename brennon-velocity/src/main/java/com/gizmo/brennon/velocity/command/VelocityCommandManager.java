@@ -7,11 +7,15 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.gizmo.brennon.velocity.BrennonVelocity;
 import com.gizmo.brennon.velocity.command.adapter.VelocityCommandAdapter;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class VelocityCommandManager {
     private final BrennonVelocity plugin;
     private final ProxyServer server;
     private final CommandManager commandManager;
     private final com.gizmo.brennon.core.command.CommandManager coreCommandManager;
+    private final List<String> registeredCommands;
 
     @Inject
     public VelocityCommandManager(BrennonVelocity plugin) {
@@ -19,6 +23,7 @@ public class VelocityCommandManager {
         this.server = plugin.getServer();
         this.commandManager = server.getCommandManager();
         this.coreCommandManager = plugin.getCore().getCommandManager();
+        this.registeredCommands = new ArrayList<>();
 
         registerCommands();
     }
@@ -52,16 +57,13 @@ public class VelocityCommandManager {
                 .build();
 
         commandManager.register(meta, adapter);
+        registeredCommands.add(name);
     }
 
     public void unregisterAll() {
-        commandManager.getMetadata("server").forEach(commandManager::unregister);
-        commandManager.getMetadata("serverinfo").forEach(commandManager::unregister);
-        commandManager.getMetadata("send").forEach(commandManager::unregister);
-        commandManager.getMetadata("network").forEach(commandManager::unregister);
-        commandManager.getMetadata("find").forEach(commandManager::unregister);
-        commandManager.getMetadata("staffchat").forEach(commandManager::unregister);
-        commandManager.getMetadata("alert").forEach(commandManager::unregister);
-        commandManager.getMetadata("maintenance").forEach(commandManager::unregister);
+        for (String command : registeredCommands) {
+            commandManager.unregister(command);
+        }
+        registeredCommands.clear();
     }
 }

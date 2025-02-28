@@ -1,37 +1,56 @@
 plugins {
-    id("java")
+    java
     id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
-group = "com.gizmo.brennon"
-version = "1.0.0-SNAPSHOT"
+group = "com.gizmo"
+version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
-    maven("https://repo.papermc.io/repository/maven-public/")
+    maven {
+        name = "papermc"
+        url = uri("https://repo.papermc.io/repository/maven-public/")
+    }
 }
 
 dependencies {
-    // Brennon Core
     implementation(project(":brennon-core"))
 
-    // Velocity API
-    compileOnly("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
-    annotationProcessor("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
+    compileOnly("com.velocitypowered:velocity-api:3.1.1")
+    annotationProcessor("com.velocitypowered:velocity-api:3.1.1")
+
+    // JSON //yaml
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("org.yaml:snakeyaml:2.0")
 }
 
 tasks {
-    shadowJar {
-        archiveBaseName.set("brennon-velocity")
-        archiveClassifier.set("")
+    jar {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
 
-        // Relocate dependencies if needed
-        relocate("com.google.gson", "com.gizmo.brennon.libs.gson")
-        relocate("com.google.guava", "com.gizmo.brennon.libs.guava")
+    shadowJar {
+        archiveClassifier.set("")
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+        dependencies {
+            include(dependency(":brennon-core"))
+        }
+
+        relocate("com.gizmo.brennon.core", "com.gizmo.brennon.velocity.lib.core")
     }
 
     build {
         dependsOn(shadowJar)
+    }
+
+    processResources {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+        filesMatching("**/*.json") {
+            expand("version" to project.version)
+        }
     }
 
     compileJava {
