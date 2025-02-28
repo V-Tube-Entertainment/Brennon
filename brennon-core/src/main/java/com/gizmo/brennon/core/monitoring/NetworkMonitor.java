@@ -1,5 +1,6 @@
 package com.gizmo.brennon.core.monitoring;
 
+import com.google.gson.JsonObject;
 import com.google.inject.Inject;
 import com.gizmo.brennon.core.database.DatabaseManager;
 import com.gizmo.brennon.core.messaging.MessageBroker;
@@ -205,7 +206,276 @@ public class NetworkMonitor implements Service {
         return metrics;
     }
     private void checkAlerts() {
-        // Implement alert checking logic here
-        logger.debug("Checking alerts...");
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            // Check and potentially resolve existing alerts
+            checkExistingAlerts(conn);
+
+            // Check for new system-wide alerts
+            checkSystemAlerts(conn);
+
+            // Check server-specific alerts
+            checkServerAlerts(conn);
+        } catch (SQLException e) {
+            logger.error("Failed to check alerts", e);
+        }
+    }
+
+    private void checkExistingAlerts(Connection conn) throws SQLException {
+        // Get unresolved alerts
+        try (PreparedStatement stmt = conn.prepareStatement("""
+                SELECT * FROM monitoring_alerts 
+                WHERE resolved_at IS NULL
+                ORDER BY created_at DESC
+                """)) {
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    String serverId = rs.getString("server_id");
+                    AlertType type = AlertType.valueOf(rs.getString("alert_type"));
+                    long alertId = rs.getLong("id");
+
+                    // Check if the alert condition is still valid
+                    if (!isAlertStillValid(conn, serverId, type)) {
+                        resolveAlert(conn, alertId);
+
+                        // Notify about resolved alert
+                        messageBroker.publish("brennon:alerts", createResolvedAlertMessage(
+                                serverId,
+                                type,
+                                "Alert condition no longer present"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    private boolean isAlertStillValid(Connection conn, String serverId, AlertType type) throws SQLException {
+        // Get the most recent metrics for the server
+        try (PreparedStatement stmt = conn.prepareStatement("""
+                SELECT * FROM server_metrics 
+                WHERE server_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+                """)) {
+
+            stmt.setString(1, serverId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    ServerMetrics metrics = new ServerMetrics(
+                            rs.getString("server_id"),
+                            rs.getTimestamp("timestamp").toInstant(),
+                            rs.getDouble("tps"),
+                            rs.getDouble("cpu_usage"),
+                            rs.getLong("memory_used"),
+                            rs.getLong("memory_max"),
+                            rs.getInt("online_players")
+                    );
+
+                    // Check if the alert condition is still true
+                    return switch (type) {
+                        case LOW_TPS -> metrics.tps() < 15.0;
+                        case HIGH_MEMORY -> metrics.getMemoryUsagePercent() > 90;
+                        case HIGH_CPU -> metrics.cpuUsage() > 80;
+                        case PLAYER_SPIKE -> isPlayerSpike(conn, serverId, metrics.onlinePlayers());
+                        case CONNECTION_LOST -> isServerOffline(serverId);
+                        default -> false;
+                    };
+                }
+            }
+        }
+        return false;
+    }
+
+    private void checkSystemAlerts(Connection conn) throws SQLException {
+        // Check for network-wide issues
+        int totalOfflineServers = countOfflineServers();
+        int totalServers = countTotalServers();
+
+        if (totalOfflineServers > 0 && ((double) totalOfflineServers / totalServers) > 0.25) {
+            createAlert("NETWORK", AlertType.CONNECTION_LOST, AlertSeverity.CRITICAL,
+                    String.format("%.0f%% of servers are offline (%d/%d)",
+                            (double) totalOfflineServers / totalServers * 100,
+                            totalOfflineServers, totalServers));
+        }
+
+        // Check for database health
+        try (PreparedStatement stmt = conn.prepareStatement("SELECT 1")) {
+            long start = System.currentTimeMillis();
+            stmt.executeQuery();
+            long queryTime = System.currentTimeMillis() - start;
+
+            if (queryTime > 1000) { // Alert if query takes more than 1 second
+                createAlert("NETWORK", AlertType.CUSTOM, AlertSeverity.WARNING,
+                        "Database response time is high: " + queryTime + "ms");
+            }
+        }
+    }
+
+    private void checkServerAlerts(Connection conn) throws SQLException {
+        // Get recent metrics for all servers
+        try (PreparedStatement stmt = conn.prepareStatement("""
+                SELECT m1.* 
+                FROM server_metrics m1
+                INNER JOIN (
+                    SELECT server_id, MAX(timestamp) as max_ts 
+                    FROM server_metrics 
+                    GROUP BY server_id
+                ) m2 ON m1.server_id = m2.server_id AND m1.timestamp = m2.max_ts
+                """)) {
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    String serverId = rs.getString("server_id");
+                    ServerMetrics metrics = new ServerMetrics(
+                            serverId,
+                            rs.getTimestamp("timestamp").toInstant(),
+                            rs.getDouble("tps"),
+                            rs.getDouble("cpu_usage"),
+                            rs.getLong("memory_used"),
+                            rs.getLong("memory_max"),
+                            rs.getInt("online_players")
+                    );
+
+                    // Check for sustained performance issues
+                    checkSustainedPerformanceIssues(conn, serverId, metrics);
+
+                    // Check for unusual player count changes
+                    checkPlayerCountAnomaly(conn, serverId, metrics.onlinePlayers());
+                }
+            }
+        }
+    }
+
+    private void checkSustainedPerformanceIssues(Connection conn, String serverId, ServerMetrics current) throws SQLException {
+        // Check for sustained low TPS (last 5 minutes)
+        try (PreparedStatement stmt = conn.prepareStatement("""
+                SELECT COUNT(*) as low_tps_count
+                FROM server_metrics
+                WHERE server_id = ? 
+                AND timestamp >= ?
+                AND tps < 15.0
+                """)) {
+
+            stmt.setString(1, serverId);
+            stmt.setTimestamp(2, Timestamp.from(Instant.now().minusSeconds(300)));
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next() && rs.getInt("low_tps_count") >= 4) { // 4 out of 5 minutes
+                    createAlert(serverId, AlertType.LOW_TPS, AlertSeverity.HIGH,
+                            "Server experiencing sustained low TPS");
+                }
+            }
+        }
+    }
+
+    private void checkPlayerCountAnomaly(Connection conn, String serverId, int currentPlayers) throws SQLException {
+        // Get average player count for this time of day
+        try (PreparedStatement stmt = conn.prepareStatement("""
+                SELECT AVG(online_players) as avg_players
+                FROM server_metrics
+                WHERE server_id = ?
+                AND HOUR(timestamp) = HOUR(NOW())
+                AND timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                """)) {
+
+            stmt.setString(1, serverId);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    double avgPlayers = rs.getDouble("avg_players");
+                    if (currentPlayers > avgPlayers * 2) { // 100% increase
+                        createAlert(serverId, AlertType.PLAYER_SPIKE, AlertSeverity.WARNING,
+                                String.format("Unusual player count increase (Current: %d, Avg: %.1f)",
+                                        currentPlayers, avgPlayers));
+                    }
+                }
+            }
+        }
+    }
+
+    private void resolveAlert(Connection conn, long alertId) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement("""
+                UPDATE monitoring_alerts
+                SET resolved_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """)) {
+            stmt.setLong(1, alertId);
+            stmt.executeUpdate();
+        }
+    }
+
+    private String createResolvedAlertMessage(String serverId, AlertType type, String message) {
+        JsonObject json = new JsonObject();
+        json.addProperty("type", "ALERT_RESOLVED");
+        json.addProperty("serverId", serverId);
+        json.addProperty("alertType", type.name());
+        json.addProperty("message", message);
+        json.addProperty("timestamp", Instant.now().toString());
+        return json.toString();
+    }
+
+    private boolean isPlayerSpike(Connection conn, String serverId, int currentPlayers) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement("""
+                SELECT AVG(online_players) as avg_players
+                FROM server_metrics
+                WHERE server_id = ?
+                AND timestamp >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                """)) {
+            stmt.setString(1, serverId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    double avgPlayers = rs.getDouble("avg_players");
+                    return currentPlayers > avgPlayers * 2;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isServerOffline(String serverId) {
+        // Check if we haven't received metrics from this server in the last minute
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                SELECT COUNT(*) as recent_metrics
+                FROM server_metrics
+                WHERE server_id = ?
+                AND timestamp >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+                """)) {
+            stmt.setString(1, serverId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() && rs.getInt("recent_metrics") == 0;
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to check server status", e);
+            return false;
+        }
+    }
+
+    private int countOfflineServers() throws SQLException {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                SELECT COUNT(DISTINCT server_id) as offline_count
+                FROM server_metrics m1
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM server_metrics m2
+                    WHERE m2.server_id = m1.server_id
+                    AND m2.timestamp >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+                )
+                """)) {
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? rs.getInt("offline_count") : 0;
+            }
+        }
+    }
+
+    private int countTotalServers() throws SQLException {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT COUNT(DISTINCT server_id) as total FROM server_metrics")) {
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? rs.getInt("total") : 0;
+            }
+        }
     }
 }
