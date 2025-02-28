@@ -1,0 +1,9 @@
+{
+  "id": "brennon",
+  "name": "Brennon",
+  "version": "1.0.0-SNAPSHOT",
+  "description": "Network Management System for Velocity",
+  "authors": ["Gizmo0320"],
+  "dependencies": [],
+  "main": "com.gizmo.brennon.velocity.BrennonVelocity"
+}
