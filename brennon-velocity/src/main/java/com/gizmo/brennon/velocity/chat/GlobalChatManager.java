@@ -1,12 +1,13 @@
 package com.gizmo.brennon.velocity.chat;
 
-import com.gizmo.brennon.core.messaging.ChatMessage;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.gizmo.brennon.core.messaging.MessageBroker;
 import com.gizmo.brennon.velocity.BrennonVelocity;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+
+import java.time.Instant;
 
 public class GlobalChatManager {
     private final BrennonVelocity plugin;
@@ -33,7 +34,7 @@ public class GlobalChatManager {
                 sender.getUniqueId(),
                 sender.getUsername(),
                 message,
-                System.currentTimeMillis()
+                Instant.now()
         );
 
         messageBroker.publish("brennon:chat", chatMessage.toJson());

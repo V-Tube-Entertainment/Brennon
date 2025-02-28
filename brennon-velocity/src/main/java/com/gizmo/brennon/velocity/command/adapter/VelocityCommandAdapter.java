@@ -25,25 +25,29 @@ public class VelocityCommandAdapter implements SimpleCommand {
         String label = invocation.alias();
         String[] args = invocation.arguments();
 
-        UUID senderId;
-        UserInfo senderInfo = null;
-
         if (invocation.source() instanceof Player player) {
-            senderId = player.getUniqueId();
+            UUID senderId = player.getUniqueId();
             plugin.getCore().getUserManager().getUser(senderId)
-                    .thenAccept(optUser -> optUser.ifPresent(user -> senderInfo = user));
+                    .thenCompose(optUser -> {
+                        UserInfo userInfo = optUser.orElse(null);
+                        CommandContext context = new CommandContext(
+                                label,
+                                Arrays.asList(args),
+                                senderId,
+                                userInfo
+                        );
+                        return plugin.getCore().getCommandManager().executeCommand(context);
+                    });
         } else {
-            senderId = UUID.randomUUID(); // Console UUID
+            // Console command
+            CommandContext context = new CommandContext(
+                    label,
+                    Arrays.asList(args),
+                    UUID.randomUUID(),
+                    null
+            );
+            plugin.getCore().getCommandManager().executeCommand(context);
         }
-
-        CommandContext context = new CommandContext(
-                label,
-                Arrays.asList(args),
-                senderId,
-                senderInfo
-        );
-
-        plugin.getCore().getCommandManager().executeCommand(context);
     }
 
     @Override
@@ -51,26 +55,30 @@ public class VelocityCommandAdapter implements SimpleCommand {
         String label = invocation.alias();
         String[] args = invocation.arguments();
 
-        UUID senderId;
-        UserInfo senderInfo = null;
-
         if (invocation.source() instanceof Player player) {
-            senderId = player.getUniqueId();
-            plugin.getCore().getUserManager().getUser(senderId)
-                    .thenAccept(optUser -> optUser.ifPresent(user -> senderInfo = user));
+            UUID senderId = player.getUniqueId();
+            return plugin.getCore().getUserManager().getUser(senderId)
+                    .thenApply(optUser -> {
+                        UserInfo userInfo = optUser.orElse(null);
+                        CommandContext context = new CommandContext(
+                                label,
+                                Arrays.asList(args),
+                                senderId,
+                                userInfo
+                        );
+                        return plugin.getCore().getCommandManager().tabComplete(context);
+                    });
         } else {
-            senderId = UUID.randomUUID(); // Console UUID
+            // Console tab completion
+            CommandContext context = new CommandContext(
+                    label,
+                    Arrays.asList(args),
+                    UUID.randomUUID(),
+                    null
+            );
+            return CompletableFuture.completedFuture(
+                    plugin.getCore().getCommandManager().tabComplete(context)
+            );
         }
-
-        CommandContext context = new CommandContext(
-                label,
-                Arrays.asList(args),
-                senderId,
-                senderInfo
-        );
-
-        return CompletableFuture.completedFuture(
-                plugin.getCore().getCommandManager().tabComplete(context)
-        );
     }
 }
