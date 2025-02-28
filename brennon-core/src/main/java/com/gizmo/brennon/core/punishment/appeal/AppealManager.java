@@ -3,7 +3,8 @@ package com.gizmo.brennon.core.punishment.appeal;
 import com.google.inject.Inject;
 import com.gizmo.brennon.core.database.DatabaseManager;
 import com.gizmo.brennon.core.messaging.MessageBroker;
-import com.gizmo.brennon.core.punishment.PunishmentManager;
+import com.gizmo.brennon.core.punishment.PunishmentService;
+import com.gizmo.brennon.core.service.Service;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.slf4j.Logger;
@@ -12,30 +13,42 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
-public class AppealManager {
+public class AppealManager implements Service {
+    private static final Duration APPEAL_COOLDOWN = Duration.ofDays(7);
+    private static final int MAX_ACTIVE_APPEALS = 3;
+
     private final Logger logger;
     private final DatabaseManager databaseManager;
     private final MessageBroker messageBroker;
-    private final PunishmentManager punishmentManager;
+    private final PunishmentService punishmentService;
     private final Gson gson;
 
     @Inject
     public AppealManager(Logger logger, DatabaseManager databaseManager,
-                         MessageBroker messageBroker, PunishmentManager punishmentManager) {
+                         MessageBroker messageBroker, PunishmentService punishmentService) {
         this.logger = logger;
         this.databaseManager = databaseManager;
         this.messageBroker = messageBroker;
-        this.punishmentManager = punishmentManager;
+        this.punishmentService = punishmentService;
         this.gson = new Gson();
     }
 
-    public void initialize() throws SQLException {
+    @Override
+    public void enable() throws Exception {
+        initialize();
+        setupMessageBroker();
+    }
+
+    @Override
+    public void disable() throws Exception {
+        // No specific cleanup needed
+    }
+
+    private void initialize() throws SQLException {
         try (Connection conn = databaseManager.getDataSource().getConnection()) {
             try (PreparedStatement stmt = conn.prepareStatement("""
                 CREATE TABLE IF NOT EXISTS appeals (
@@ -49,84 +62,191 @@ public class AppealManager {
                     response TEXT,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     handled_at TIMESTAMP,
+                    cooldown_until TIMESTAMP,
+                    attempt_count INT NOT NULL DEFAULT 1,
                     FOREIGN KEY (punishment_id) REFERENCES punishments(id),
-                    INDEX (status),
-                    INDEX (appealer_id),
-                    INDEX (created_at)
+                    INDEX idx_status (status),
+                    INDEX idx_appealer_id (appealer_id),
+                    INDEX idx_created_at (created_at)
                 )""")) {
                 stmt.executeUpdate();
             }
         }
     }
 
+    private void setupMessageBroker() {
+        messageBroker.subscribe("brennon:appeals", message -> {
+            try {
+                JsonObject data = gson.fromJson(message, JsonObject.class);
+                String type = data.get("type").getAsString();
+
+                switch (type) {
+                    case "APPEAL_ESCALATE" -> {
+                        long appealId = data.get("appealId").getAsLong();
+                        UUID handlerId = UUID.fromString(data.get("handlerId").getAsString());
+                        String handlerName = data.get("handlerName").getAsString();
+                        escalateAppeal(appealId, handlerId, handlerName);
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Error handling appeal message", e);
+            }
+        });
+    }
+
     public Optional<Appeal> createAppeal(long punishmentId, UUID appealerId, String reason) {
-        // Check if there's already a pending appeal
+        if (!canUserAppeal(appealerId)) {
+            return Optional.empty();
+        }
+
         if (hasPendingAppeal(punishmentId)) {
             return Optional.empty();
         }
 
-        try (Connection conn = databaseManager.getDataSource().getConnection();
-             PreparedStatement stmt = conn.prepareStatement("""
-                INSERT INTO appeals (punishment_id, appealer_id, reason, created_at)
-                VALUES (?, ?, ?, ?)
-                """, PreparedStatement.RETURN_GENERATED_KEYS)) {
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                Appeal appeal;
+                try (PreparedStatement stmt = conn.prepareStatement("""
+                    INSERT INTO appeals (punishment_id, appealer_id, reason, created_at, attempt_count)
+                    SELECT ?, ?, ?, ?, COALESCE(
+                        (SELECT MAX(attempt_count) + 1 
+                         FROM appeals 
+                         WHERE punishment_id = ? AND appealer_id = ?),
+                        1)
+                    """, PreparedStatement.RETURN_GENERATED_KEYS)) {
 
-            Instant now = Instant.now();
-            stmt.setLong(1, punishmentId);
-            stmt.setString(2, appealerId.toString());
-            stmt.setString(3, reason);
-            stmt.setObject(4, now);
+                    Instant now = Instant.now();
+                    stmt.setLong(1, punishmentId);
+                    stmt.setString(2, appealerId.toString());
+                    stmt.setString(3, reason);
+                    stmt.setObject(4, now);
+                    stmt.setLong(5, punishmentId);
+                    stmt.setString(6, appealerId.toString());
 
-            stmt.executeUpdate();
+                    stmt.executeUpdate();
 
-            try (ResultSet rs = stmt.getGeneratedKeys()) {
-                if (rs.next()) {
-                    Appeal appeal = Appeal.create(punishmentId, appealerId, reason);
-                    notifyAppealCreated(appeal);
-                    return Optional.of(appeal);
+                    try (ResultSet rs = stmt.getGeneratedKeys()) {
+                        if (!rs.next()) {
+                            throw new SQLException("Failed to get generated appeal ID");
+                        }
+                        appeal = Appeal.create(punishmentId, appealerId, reason);
+                    }
                 }
+
+                // Set cooldown for the user
+                try (PreparedStatement stmt = conn.prepareStatement("""
+                    UPDATE appeals 
+                    SET cooldown_until = ? 
+                    WHERE id = ?
+                    """)) {
+                    stmt.setObject(1, Instant.now().plus(APPEAL_COOLDOWN));
+                    stmt.setLong(2, appeal.id());
+                    stmt.executeUpdate();
+                }
+
+                conn.commit();
+                notifyAppealCreated(appeal);
+                return Optional.of(appeal);
+
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
             }
         } catch (SQLException e) {
             logger.error("Failed to create appeal for punishment {}", punishmentId, e);
+            return Optional.empty();
         }
-
-        return Optional.empty();
     }
 
     public boolean handleAppeal(long appealId, UUID handlerId, String handlerName,
                                 AppealStatus status, String response) {
-        try (Connection conn = databaseManager.getDataSource().getConnection();
-             PreparedStatement stmt = conn.prepareStatement("""
-                UPDATE appeals
-                SET status = ?, handler_id = ?, handler_name = ?, 
-                    response = ?, handled_at = ?
-                WHERE id = ? AND status = 'PENDING'
-                """)) {
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                Appeal appeal;
+                try (PreparedStatement stmt = conn.prepareStatement("""
+                    UPDATE appeals
+                    SET status = ?, handler_id = ?, handler_name = ?, 
+                        response = ?, handled_at = ?
+                    WHERE id = ? AND status = 'PENDING'
+                    """)) {
 
-            Instant now = Instant.now();
-            stmt.setString(1, status.name());
-            stmt.setString(2, handlerId.toString());
-            stmt.setString(3, handlerName);
-            stmt.setString(4, response);
-            stmt.setObject(5, now);
-            stmt.setLong(6, appealId);
+                    Instant now = Instant.now();
+                    stmt.setString(1, status.name());
+                    stmt.setString(2, handlerId.toString());
+                    stmt.setString(3, handlerName);
+                    stmt.setString(4, response);
+                    stmt.setObject(5, now);
+                    stmt.setLong(6, appealId);
 
-            if (stmt.executeUpdate() > 0) {
-                getAppeal(appealId).ifPresent(appeal -> {
-                    // If approved, remove the punishment
-                    if (status == AppealStatus.APPROVED) {
-                        punishmentManager.revokePunishment(appeal.punishmentId(), handlerId, handlerName,
-                                "Appeal approved: " + response);
+                    if (stmt.executeUpdate() == 0) {
+                        return false;
                     }
-                    notifyAppealHandled(appeal);
-                });
+
+                    appeal = getAppeal(appealId).orElseThrow();
+                }
+
+                if (status == AppealStatus.APPROVED) {
+                    punishmentService.revokePunishment(appeal.punishmentId(), handlerId);
+                }
+
+                conn.commit();
+                notifyAppealHandled(appeal);
                 return true;
+
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
             }
         } catch (SQLException e) {
             logger.error("Failed to handle appeal {}", appealId, e);
+            return false;
         }
+    }
 
-        return false;
+    public boolean escalateAppeal(long appealId, UUID handlerId, String handlerName) {
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                Appeal appeal;
+                try (PreparedStatement stmt = conn.prepareStatement("""
+                    UPDATE appeals
+                    SET status = ?, handler_id = ?, handler_name = ?, handled_at = ?
+                    WHERE id = ? AND status = 'PENDING'
+                    """)) {
+
+                    stmt.setString(1, AppealStatus.ESCALATED.name());
+                    stmt.setString(2, handlerId.toString());
+                    stmt.setString(3, handlerName);
+                    stmt.setObject(4, Instant.now());
+                    stmt.setLong(5, appealId);
+
+                    if (stmt.executeUpdate() == 0) {
+                        return false;
+                    }
+
+                    appeal = getAppeal(appealId).orElseThrow();
+                }
+
+                conn.commit();
+                notifyAppealEscalated(appeal);
+                return true;
+
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to escalate appeal {}", appealId, e);
+            return false;
+        }
     }
 
     public List<Appeal> getPendingAppeals() {
@@ -173,6 +293,45 @@ public class AppealManager {
         return Optional.empty();
     }
 
+    private boolean canUserAppeal(UUID appealerId) {
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            // Check active appeals count
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                SELECT COUNT(*)
+                FROM appeals
+                WHERE appealer_id = ?
+                AND status = 'PENDING'
+                """)) {
+
+                stmt.setString(1, appealerId.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next() && rs.getInt(1) >= MAX_ACTIVE_APPEALS) {
+                        return false;
+                    }
+                }
+            }
+
+            // Check cooldown
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                SELECT cooldown_until
+                FROM appeals
+                WHERE appealer_id = ?
+                AND cooldown_until > ?
+                LIMIT 1
+                """)) {
+
+                stmt.setString(1, appealerId.toString());
+                stmt.setObject(2, Instant.now());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return !rs.next();
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to check appeal eligibility for user {}", appealerId, e);
+            return false;
+        }
+    }
+
     private boolean hasPendingAppeal(long punishmentId) {
         try (Connection conn = databaseManager.getDataSource().getConnection();
              PreparedStatement stmt = conn.prepareStatement("""
@@ -203,7 +362,8 @@ public class AppealManager {
                 rs.getString("handler_name"),
                 rs.getString("response"),
                 rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("handled_at") != null ? rs.getTimestamp("handled_at").toInstant() : null
+                rs.getTimestamp("handled_at") != null ? rs.getTimestamp("handled_at").toInstant() : null,
+                rs.getInt("attempt_count")
         );
     }
 
@@ -213,6 +373,7 @@ public class AppealManager {
         data.addProperty("appealId", appeal.id());
         data.addProperty("punishmentId", appeal.punishmentId());
         data.addProperty("appealerId", appeal.appealerId().toString());
+        data.addProperty("attemptCount", appeal.attemptCount());
         messageBroker.publish("brennon:appeals", gson.toJson(data));
     }
 
@@ -223,6 +384,123 @@ public class AppealManager {
         data.addProperty("status", appeal.status().name());
         data.addProperty("handlerId", appeal.handlerId().toString());
         data.addProperty("handlerName", appeal.handlerName());
+        data.addProperty("response", appeal.response());
         messageBroker.publish("brennon:appeals", gson.toJson(data));
+    }
+
+    private void notifyAppealEscalated(Appeal appeal) {
+        JsonObject data = new JsonObject();
+        data.addProperty("type", "APPEAL_ESCALATED");
+        data.addProperty("appealId", appeal.id());
+        data.addProperty("punishmentId", appeal.punishmentId());
+        data.addProperty("handlerId", appeal.handlerId().toString());
+        data.addProperty("handlerName", appeal.handlerName());
+        messageBroker.publish("brennon:appeals", gson.toJson(data));
+    }
+
+    public List<Appeal> getAppealHistory(UUID appealerId, int page, int pageSize) {
+        List<Appeal> appeals = new ArrayList<>();
+        int offset = (page - 1) * pageSize;
+
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                SELECT *
+                FROM appeals
+                WHERE appealer_id = ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """)) {
+
+            stmt.setString(1, appealerId.toString());
+            stmt.setInt(2, pageSize);
+            stmt.setInt(3, offset);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    appeals.add(mapResultSetToAppeal(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to get appeal history for user {}", appealerId, e);
+        }
+
+        return appeals;
+    }
+
+    public int getTotalAppeals(UUID appealerId) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                SELECT COUNT(*)
+                FROM appeals
+                WHERE appealer_id = ?
+                """)) {
+
+            stmt.setString(1, appealerId.toString());
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to get total appeals count for user {}", appealerId, e);
+        }
+        return 0;
+    }
+
+    public List<Appeal> getHandlerHistory(UUID handlerId, int page, int pageSize) {
+        List<Appeal> appeals = new ArrayList<>();
+        int offset = (page - 1) * pageSize;
+
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                SELECT *
+                FROM appeals
+                WHERE handler_id = ?
+                ORDER BY handled_at DESC
+                LIMIT ? OFFSET ?
+                """)) {
+
+            stmt.setString(1, handlerId.toString());
+            stmt.setInt(2, pageSize);
+            stmt.setInt(3, offset);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    appeals.add(mapResultSetToAppeal(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to get handler history for user {}", handlerId, e);
+        }
+
+        return appeals;
+    }
+
+    public Map<AppealStatus, Integer> getAppealStatistics(UUID appealerId) {
+        Map<AppealStatus, Integer> stats = new EnumMap<>(AppealStatus.class);
+        for (AppealStatus status : AppealStatus.values()) {
+            stats.put(status, 0);
+        }
+
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+                SELECT status, COUNT(*) as count
+                FROM appeals
+                WHERE appealer_id = ?
+                GROUP BY status
+                """)) {
+
+            stmt.setString(1, appealerId.toString());
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    AppealStatus status = AppealStatus.valueOf(rs.getString("status"));
+                    stats.put(status, rs.getInt("count"));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to get appeal statistics for user {}", appealerId, e);
+        }
+
+        return stats;
     }
 }

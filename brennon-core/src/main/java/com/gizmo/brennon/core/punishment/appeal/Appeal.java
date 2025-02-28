@@ -13,7 +13,8 @@ public record Appeal(
         String handlerName,
         String response,
         Instant createdAt,
-        Instant handledAt
+        Instant handledAt,
+        int attemptCount
 ) {
     public static Appeal create(long punishmentId, UUID appealerId, String reason) {
         return new Appeal(
@@ -26,7 +27,8 @@ public record Appeal(
                 null,
                 null,
                 Instant.now(),
-                null
+                null,
+                1
         );
     }
 
@@ -41,7 +43,8 @@ public record Appeal(
                 handlerName,
                 response,
                 createdAt,
-                Instant.now()
+                Instant.now(),
+                attemptCount
         );
     }
 }

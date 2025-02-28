@@ -8,13 +8,11 @@ import com.gizmo.brennon.core.service.Service;
 import com.gizmo.brennon.core.scheduler.TaskScheduler;
 import org.slf4j.Logger;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.Statement;
+import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -327,5 +325,26 @@ public class PunishmentService implements Service {
                 rs.getTimestamp("expires_at") != null ? rs.getTimestamp("expires_at").toInstant() : null,
                 rs.getBoolean("active")
         );
+    }
+
+    // Add this method to your existing PunishmentService class
+    public Optional<UUID> lookupPlayer(String name) {
+        try (Connection conn = databaseManager.getDataSource().getConnection();
+             PreparedStatement stmt = conn.prepareStatement("""
+             SELECT id 
+             FROM users 
+             WHERE username = ?
+             """)) {
+
+            stmt.setString(1, name);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(UUID.fromString(rs.getString("id")));
+                }
+            }
+        } catch (SQLException e) {
+            logger.error("Failed to lookup player UUID for name: {}", name, e);
+        }
+        return Optional.empty();
     }
 }
