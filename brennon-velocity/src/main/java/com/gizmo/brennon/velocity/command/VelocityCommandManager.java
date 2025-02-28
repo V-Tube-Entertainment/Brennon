@@ -4,18 +4,22 @@ import com.google.inject.Inject;
 import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.gizmo.brennon.core.command.CommandContext;
 import com.gizmo.brennon.velocity.BrennonVelocity;
+import com.gizmo.brennon.velocity.command.adapter.VelocityCommandAdapter;
 
 public class VelocityCommandManager {
     private final BrennonVelocity plugin;
     private final ProxyServer server;
     private final CommandManager commandManager;
+    private final com.gizmo.brennon.core.command.CommandManager coreCommandManager;
 
     @Inject
     public VelocityCommandManager(BrennonVelocity plugin) {
         this.plugin = plugin;
         this.server = plugin.getServer();
         this.commandManager = server.getCommandManager();
+        this.coreCommandManager = plugin.getCore().getCommandManager();
 
         registerCommands();
     }
@@ -39,10 +43,17 @@ public class VelocityCommandManager {
     }
 
     private void registerCommand(String name, Object command) {
+        // Register with core command manager first
+        coreCommandManager.registerCommands(command);
+
+        // Create Velocity command adapter
+        VelocityCommandAdapter adapter = new VelocityCommandAdapter(plugin, command);
+
+        // Register with Velocity
         CommandMeta meta = commandManager.metaBuilder(name)
                 .plugin(plugin)
                 .build();
 
-        commandManager.register(meta, command);
+        commandManager.register(meta, adapter);
     }
 }
