@@ -1,64 +1,55 @@
 package com.gizmo.brennon.velocity.listener;
 
-import com.velocitypowered.api.event.PostOrder;
+import com.gizmo.brennon.core.BrennonCore;
+import com.gizmo.brennon.velocity.manager.ProxyManager;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
-import com.velocitypowered.api.event.connection.LoginEvent;
-import com.velocitypowered.api.event.player.ServerPreConnectEvent;
+import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.proxy.Player;
-import com.velocitypowered.api.proxy.server.RegisteredServer;
-import com.gizmo.brennon.core.BrennonCore;
+import com.gizmo.brennon.core.user.UserInfo;
 import com.gizmo.brennon.core.user.UserManager;
-import com.gizmo.brennon.velocity.manager.ProxyManager;
+import com.gizmo.brennon.velocity.BrennonVelocity;
 
 import java.util.Optional;
 import java.util.UUID;
 
 public class ConnectionListener {
-    private final BrennonCore core;
-    private final ProxyManager proxyManager;
+    private final BrennonVelocity plugin;
     private final UserManager userManager;
 
-    public ConnectionListener(BrennonCore core, ProxyManager proxyManager) {
-        this.core = core;
-        this.proxyManager = proxyManager;
-        this.userManager = core.getUserManager();
+    public ConnectionListener(BrennonVelocity plugin) {
+        this.plugin = plugin;
+        this.userManager = plugin.getCore().getUserManager();
     }
 
-    @Subscribe(order = PostOrder.FIRST)
-    public void onLogin(LoginEvent event) {
+    @Subscribe
+    public void onPlayerLogin(PostLoginEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
         String username = player.getUsername();
 
-        // Register or update user in the network
-        userManager.getUser(uuid).thenAccept(user -> {
-            if (user.isEmpty()) {
-                userManager.createUser(uuid, username);
-            } else {
-                userManager.updateUsername(uuid, username);
-            }
-        });
-    }
-
-    @Subscribe
-    public void onServerPreConnect(ServerPreConnectEvent event) {
-        Player player = event.getPlayer();
-        Optional<RegisteredServer> result = event.getResult().getServer();
-
-        // If no server is selected, find the best available server
-        if (result.isEmpty()) {
-            Optional<RegisteredServer> server = proxyManager.findBestServer("lobby");
-            server.ifPresent(s -> event.setResult(ServerPreConnectEvent.ServerResult.allowed(s)));
+        Optional<UserInfo> userInfo = userManager.getUser(uuid);
+        if (userInfo.isEmpty()) {
+            // Create new user if they don't exist
+            handleUserJoin(uuid, username, player.getRemoteAddress().getHostString(), "");
+        } else {
+            // Update existing user information
+            handleUserJoin(uuid, username, player.getRemoteAddress().getHostString(),
+                    userInfo.get().currentServer());
         }
     }
 
     @Subscribe
-    public void onDisconnect(DisconnectEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
+    public void onPlayerDisconnect(DisconnectEvent event) {
+        UUID uuid = event.getPlayer().getUniqueId();
+        handleUserQuit(uuid);
+    }
 
-        // Update user's last seen time and online status
-        userManager.setOnline(uuid, false);
+    private void handleUserJoin(UUID uuid, String username, String ipAddress, String serverId) {
+        userManager.handleUserJoin(uuid, username, ipAddress, serverId);
+    }
+
+    private void handleUserQuit(UUID uuid) {
+        userManager.handleUserQuit(uuid);
     }
 }

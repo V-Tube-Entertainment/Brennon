@@ -6,17 +6,24 @@ import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.gizmo.brennon.core.BrennonCore;
 import com.gizmo.brennon.core.server.ServerManager;
+import com.gizmo.brennon.core.messaging.ServerStatus;
+import com.gizmo.brennon.core.messaging.ServerStatusMessage;
 import com.gizmo.brennon.velocity.manager.ProxyManager;
+import com.google.gson.Gson;
+
+import java.time.Instant;
 
 public class ServerListener {
     private final BrennonCore core;
     private final ProxyManager proxyManager;
     private final ServerManager serverManager;
+    private final Gson gson;
 
     public ServerListener(BrennonCore core, ProxyManager proxyManager) {
         this.core = core;
         this.proxyManager = proxyManager;
         this.serverManager = core.getServerManager();
+        this.gson = new Gson();
     }
 
     @Subscribe
@@ -28,15 +35,19 @@ public class ServerListener {
         if (server != null) {
             String serverId = server.getServerInfo().getName();
 
-            // Update server metrics
             serverManager.getServer(serverId).ifPresent(info -> {
                 int playerCount = server.getPlayersConnected().size();
-                // Update player count in metrics
-                core.getNetworkMonitor().recordMetrics(
-                        info.createMetricsBuilder()
-                                .onlinePlayers(playerCount)
-                                .build()
+                ServerStatusMessage statusMessage = new ServerStatusMessage(
+                        serverId,
+                        ServerStatus.ONLINE,
+                        playerCount,
+                        -1, // Velocity doesn't track max players at proxy level
+                        20.0,
+                        0.0,
+                        Instant.now()
                 );
+
+                core.getMessageBroker().publish("brennon:server:status", gson.toJson(statusMessage));
             });
         }
     }
@@ -47,15 +58,19 @@ public class ServerListener {
             RegisteredServer server = event.getResult().getServer().get();
             String serverId = server.getServerInfo().getName();
 
-            // Update server metrics before connection
             serverManager.getServer(serverId).ifPresent(info -> {
                 int playerCount = server.getPlayersConnected().size();
-                // Update player count in metrics
-                core.getNetworkMonitor().recordMetrics(
-                        info.createMetricsBuilder()
-                                .onlinePlayers(playerCount)
-                                .build()
+                ServerStatusMessage statusMessage = new ServerStatusMessage(
+                        serverId,
+                        ServerStatus.ONLINE,
+                        playerCount,
+                        -1, // Velocity doesn't track max players at proxy level
+                        20.0,
+                        0.0,
+                        Instant.now()
                 );
+
+                core.getMessageBroker().publish("brennon:server:status", gson.toJson(statusMessage));
             });
         }
     }

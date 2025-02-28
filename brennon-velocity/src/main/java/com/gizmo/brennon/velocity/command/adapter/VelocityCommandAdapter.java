@@ -8,6 +8,7 @@ import com.gizmo.brennon.velocity.BrennonVelocity;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -27,58 +28,59 @@ public class VelocityCommandAdapter implements SimpleCommand {
 
         if (invocation.source() instanceof Player player) {
             UUID senderId = player.getUniqueId();
-            plugin.getCore().getUserManager().getUser(senderId)
-                    .thenCompose(optUser -> {
-                        UserInfo userInfo = optUser.orElse(null);
-                        CommandContext context = new CommandContext(
-                                label,
-                                Arrays.asList(args),
-                                senderId,
-                                userInfo
-                        );
-                        return plugin.getCore().getCommandManager().executeCommand(context);
-                    });
-        } else {
-            // Console command
+            // Get user info synchronously since we need it for command execution
+            Optional<UserInfo> userInfo = plugin.getCore().getUserManager().getUser(senderId);
+
             CommandContext context = new CommandContext(
                     label,
                     Arrays.asList(args),
-                    UUID.randomUUID(),
+                    senderId,
+                    userInfo.orElse(null)
+            );
+
+            plugin.getCore().getCommandManager().executeCommand(context);
+        } else {
+            // Console command execution
+            CommandContext context = new CommandContext(
+                    label,
+                    Arrays.asList(args),
+                    UUID.randomUUID(), // Console UUID
                     null
             );
+
             plugin.getCore().getCommandManager().executeCommand(context);
         }
     }
 
     @Override
     public CompletableFuture<List<String>> suggestAsync(Invocation invocation) {
-        String label = invocation.alias();
-        String[] args = invocation.arguments();
+        return CompletableFuture.supplyAsync(() -> {
+            String label = invocation.alias();
+            String[] args = invocation.arguments();
 
-        if (invocation.source() instanceof Player player) {
-            UUID senderId = player.getUniqueId();
-            return plugin.getCore().getUserManager().getUser(senderId)
-                    .thenApply(optUser -> {
-                        UserInfo userInfo = optUser.orElse(null);
-                        CommandContext context = new CommandContext(
-                                label,
-                                Arrays.asList(args),
-                                senderId,
-                                userInfo
-                        );
-                        return plugin.getCore().getCommandManager().tabComplete(context);
-                    });
-        } else {
-            // Console tab completion
-            CommandContext context = new CommandContext(
-                    label,
-                    Arrays.asList(args),
-                    UUID.randomUUID(),
-                    null
-            );
-            return CompletableFuture.completedFuture(
-                    plugin.getCore().getCommandManager().tabComplete(context)
-            );
-        }
+            if (invocation.source() instanceof Player player) {
+                UUID senderId = player.getUniqueId();
+                Optional<UserInfo> userInfo = plugin.getCore().getUserManager().getUser(senderId);
+
+                CommandContext context = new CommandContext(
+                        label,
+                        Arrays.asList(args),
+                        senderId,
+                        userInfo.orElse(null)
+                );
+
+                return plugin.getCore().getCommandManager().tabComplete(context);
+            } else {
+                // Console tab completion
+                CommandContext context = new CommandContext(
+                        label,
+                        Arrays.asList(args),
+                        UUID.randomUUID(),
+                        null
+                );
+
+                return plugin.getCore().getCommandManager().tabComplete(context);
+            }
+        });
     }
 }

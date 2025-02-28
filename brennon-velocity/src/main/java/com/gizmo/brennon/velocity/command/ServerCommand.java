@@ -29,7 +29,6 @@ public class ServerCommand implements SimpleCommand {
         String[] args = invocation.arguments();
 
         if (args.length == 0) {
-            // Show server list
             showServerList(player);
             return;
         }
@@ -57,7 +56,6 @@ public class ServerCommand implements SimpleCommand {
         return CompletableFuture.supplyAsync(() -> {
             List<String> suggestions = new ArrayList<>();
 
-            // Only suggest servers the player has permission to join
             if (invocation.source() instanceof Player player) {
                 plugin.getProxyManager().getServers().forEach((id, server) -> {
                     if (player.hasPermission("brennon.server." + id)) {
@@ -71,19 +69,24 @@ public class ServerCommand implements SimpleCommand {
     }
 
     private void showServerList(Player player) {
-        Component message = Component.text("Available servers:", NamedTextColor.GOLD)
+        // Build the initial message
+        Component.Builder messageBuilder = Component.text()
+                .append(Component.text("Available servers:", NamedTextColor.GOLD))
                 .append(Component.newline());
 
+        // Add each server to the message
         plugin.getProxyManager().getServers().forEach((id, server) -> {
             if (player.hasPermission("brennon.server." + id)) {
                 int playerCount = server.getPlayersConnected().size();
-                Component serverInfo = Component.text("- " + id + " ", NamedTextColor.YELLOW)
+                Component serverInfo = Component.text()
+                        .append(Component.text("- " + id + " ", NamedTextColor.YELLOW))
                         .append(Component.text("(" + playerCount + " players)", NamedTextColor.GRAY))
-                        .append(Component.newline());
-                message = message.append(serverInfo);
+                        .append(Component.newline())
+                        .build();
+                messageBuilder.append(serverInfo);
             }
         });
 
-        player.sendMessage(message);
+        player.sendMessage(messageBuilder.build());
     }
 }
