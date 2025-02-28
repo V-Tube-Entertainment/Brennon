@@ -56,4 +56,11 @@ public record UserInfo(
                 lastSeen
         );
     }
+
+    public boolean hasPermission(String permission) {
+        // Check if the user has permission in their metadata
+        return metadata.containsKey("permissions") &&
+                (metadata.get("permissions").contains(permission) ||
+                        metadata.get("permissions").contains("*"));
+    }
 }

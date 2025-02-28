@@ -2,6 +2,7 @@ package com.gizmo.brennon.core.punishment.appeal.command;
 
 import com.gizmo.brennon.core.command.Command;
 import com.gizmo.brennon.core.command.CommandContext;
+import com.gizmo.brennon.core.database.DatabaseManager;
 import com.gizmo.brennon.core.punishment.Punishment;
 import com.gizmo.brennon.core.punishment.PunishmentService;
 import com.gizmo.brennon.core.punishment.appeal.Appeal;
@@ -12,6 +13,8 @@ import com.google.inject.Inject;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -28,14 +31,17 @@ import java.sql.SQLException;
 
 public class AppealCommands {
     private static final int APPEALS_PER_PAGE = 5;
+    private static final Logger logger = LoggerFactory.getLogger(AppealCommands.class);
 
     private final AppealManager appealManager;
     private final PunishmentService punishmentService;
+    private final DatabaseManager databaseManager;
 
     @Inject
-    public AppealCommands(AppealManager appealManager, PunishmentService punishmentService) {
+    public AppealCommands(AppealManager appealManager, PunishmentService punishmentService, DatabaseManager databaseManager) {
         this.appealManager = appealManager;
         this.punishmentService = punishmentService;
+        this.databaseManager = databaseManager;
     }
 
     @Command(name = "appeal", permission = "brennon.appeal.create")
@@ -259,31 +265,49 @@ public class AppealCommands {
                 }
             } catch (NumberFormatException e) {
                 // Check if the sender has permission to view others' history
-                if (context.getSenderInfo().map(info -> info.hasPermission("brennon.appeal.history.others")).orElse(false)) {
-                    String playerName = context.getArg(0);
-                    Optional<UUID> playerId = punishmentService.lookupPlayer(playerName);
-                    if (playerId.isEmpty()) {
+                boolean hasPermission = context.getSenderInfo()
+                        .map(info -> info.hasPermission("brennon.appeal.history.others"))
+                        .orElse(false);
+
+                if (!hasPermission) {
+                    context.replyError(Component.text("You don't have permission to view other players' appeal history."));
+                    return;
+                }
+
+                String playerName = context.getArg(0);
+                // Try to get the player's UUID from user service
+                try (Connection conn = databaseManager.getDataSource().getConnection();
+                     PreparedStatement stmt = conn.prepareStatement(
+                             "SELECT uuid FROM users WHERE username = ? LIMIT 1"
+                     )) {
+
+                    stmt.setString(1, playerName);
+                    ResultSet rs = stmt.executeQuery();
+
+                    if (rs.next()) {
+                        targetId = UUID.fromString(rs.getString("uuid"));
+                        targetName = playerName;
+
+                        // Check for page number as second argument
+                        if (context.getArgs().size() >= 2) {
+                            try {
+                                page = Integer.parseInt(context.getArgs().get(1));
+                                if (page < 1) {
+                                    context.replyError(Component.text("Page number must be positive."));
+                                    return;
+                                }
+                            } catch (NumberFormatException ex) {
+                                context.replyError(Component.text("Invalid page number."));
+                                return;
+                            }
+                        }
+                    } else {
                         context.replyError(Component.text("Player not found."));
                         return;
                     }
-                    targetId = playerId.get();
-                    targetName = playerName;
-
-                    // Check for page number as second argument
-                    if (context.getArgs().size() >= 2) {
-                        try {
-                            page = Integer.parseInt(context.getArgs().get(1));
-                            if (page < 1) {
-                                context.replyError(Component.text("Page number must be positive."));
-                                return;
-                            }
-                        } catch (NumberFormatException ex) {
-                            context.replyError(Component.text("Invalid page number."));
-                            return;
-                        }
-                    }
-                } else {
-                    context.replyError(Component.text("Invalid page number."));
+                } catch (SQLException ex) {
+                    logger.error("Failed to lookup player UUID", ex);
+                    context.replyError(Component.text("An error occurred while looking up the player."));
                     return;
                 }
             }
