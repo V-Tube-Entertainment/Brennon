@@ -1,5 +1,7 @@
 package com.gizmo.brennon.core.punishment.appeal;
 
+import com.gizmo.brennon.core.punishment.appeal.search.AppealSearchOptions;
+import com.gizmo.brennon.core.punishment.appeal.search.AppealSearchResult;
 import com.google.inject.Inject;
 import com.gizmo.brennon.core.database.DatabaseManager;
 import com.gizmo.brennon.core.messaging.MessageBroker;
@@ -9,10 +11,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.slf4j.Logger;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -502,5 +501,119 @@ public class AppealManager implements Service {
         }
 
         return stats;
+    }
+
+    public AppealSearchResult searchAppeals(AppealSearchOptions options) {
+        List<Appeal> appeals = new ArrayList<>();
+        int totalResults = 0;
+
+        try (Connection conn = databaseManager.getDataSource().getConnection()) {
+            // Build the search query
+            StringBuilder queryBuilder = new StringBuilder();
+            List<Object> params = new ArrayList<>();
+
+            queryBuilder.append("""
+            SELECT SQL_CALC_FOUND_ROWS *
+            FROM appeals
+            WHERE 1=1
+        """);
+
+            // Add search conditions
+            if (!options.query().isEmpty()) {
+                queryBuilder.append("""
+                AND (
+                    LOWER(reason) LIKE LOWER(?)
+                    OR LOWER(response) LIKE LOWER(?)
+                    OR LOWER(handler_name) LIKE LOWER(?)
+                )
+            """);
+                String searchPattern = "%" + options.query() + "%";
+                params.add(searchPattern);
+                params.add(searchPattern);
+                params.add(searchPattern);
+            }
+
+            if (!options.statuses().isEmpty()) {
+                queryBuilder.append("AND status IN (");
+                queryBuilder.append(String.join(",", Collections.nCopies(options.statuses().size(), "?")));
+                queryBuilder.append(") ");
+                params.addAll(options.statuses().stream().map(Enum::name).toList());
+            }
+
+            if (options.startDate() != null) {
+                queryBuilder.append("AND created_at >= ? ");
+                params.add(options.startDate());
+            }
+
+            if (options.endDate() != null) {
+                queryBuilder.append("AND created_at <= ? ");
+                params.add(options.endDate());
+            }
+
+            if (options.handlerId() != null) {
+                queryBuilder.append("AND handler_id = ? ");
+                params.add(options.handlerId().toString());
+            }
+
+            if (options.appealerId() != null) {
+                queryBuilder.append("AND appealer_id = ? ");
+                params.add(options.appealerId().toString());
+            }
+
+            // Add ordering and pagination
+            queryBuilder.append("ORDER BY created_at DESC ");
+            queryBuilder.append("LIMIT ? OFFSET ?");
+
+            int offset = (options.page() - 1) * options.pageSize();
+            params.add(options.pageSize());
+            params.add(offset);
+
+            // Execute search query
+            try (PreparedStatement stmt = conn.prepareStatement(queryBuilder.toString())) {
+                for (int i = 0; i < params.size(); i++) {
+                    setParameter(stmt, i + 1, params.get(i));
+                }
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        appeals.add(mapResultSetToAppeal(rs));
+                    }
+                }
+            }
+
+            // Get total results count
+            try (PreparedStatement countStmt = conn.prepareStatement("SELECT FOUND_ROWS()");
+                 ResultSet countRs = countStmt.executeQuery()) {
+                if (countRs.next()) {
+                    totalResults = countRs.getInt(1);
+                }
+            }
+
+        } catch (SQLException e) {
+            logger.error("Failed to search appeals", e);
+            return new AppealSearchResult(
+                    Collections.emptyList(),
+                    0,
+                    options.page(),
+                    0
+            );
+        }
+
+        int totalPages = (totalResults + options.pageSize() - 1) / options.pageSize();
+
+        return new AppealSearchResult(
+                appeals,
+                totalResults,
+                options.page(),
+                totalPages
+        );
+    }
+
+    private void setParameter(PreparedStatement stmt, int index, Object value) throws SQLException {
+        if (value instanceof Instant instant) {
+            stmt.setTimestamp(index, Timestamp.from(instant));
+        } else {
+            stmt.setObject(index, value);
+        }
     }
 }

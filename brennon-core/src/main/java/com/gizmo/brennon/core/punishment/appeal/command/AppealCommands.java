@@ -8,22 +8,24 @@ import com.gizmo.brennon.core.punishment.PunishmentService;
 import com.gizmo.brennon.core.punishment.appeal.Appeal;
 import com.gizmo.brennon.core.punishment.appeal.AppealManager;
 import com.gizmo.brennon.core.punishment.appeal.AppealStatus;
+import com.gizmo.brennon.core.punishment.appeal.search.AppealSearchOptions;
+import com.gizmo.brennon.core.punishment.appeal.search.AppealSearchResult;
 import com.gizmo.brennon.core.user.UserInfo;
 import com.google.inject.Inject;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.EnumMap;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -409,5 +411,134 @@ public class AppealCommands {
         return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
                 .withZone(ZoneOffset.UTC)
                 .format(instant);
+    }
+
+    @Command(name = "appealsearch", permission = "brennon.appeal.search")
+    public void searchAppeals(CommandContext context) {
+        if (context.getArgs().isEmpty()) {
+            context.replyError(Component.text("Usage: /appealsearch <query> [page] [--status=STATUS] [--handler=NAME] [--from=DATE] [--to=DATE]"));
+            return;
+        }
+
+        AppealSearchOptions.Builder searchBuilder = AppealSearchOptions.builder();
+        int page = 1;
+
+        // Parse arguments
+        List<String> queryParts = new ArrayList<>();
+        for (int i = 0; i < context.getArgs().size(); i++) {
+            String arg = context.getArg(i);
+
+            if (arg.startsWith("--")) {
+                String[] parts = arg.substring(2).split("=", 2);
+                if (parts.length != 2) continue;
+
+                switch (parts[0].toLowerCase()) {
+                    case "status" -> {
+                        try {
+                            AppealStatus status = AppealStatus.valueOf(parts[1].toUpperCase());
+                            searchBuilder.statuses(EnumSet.of(status));
+                        } catch (IllegalArgumentException e) {
+                            context.replyError(Component.text("Invalid status: " + parts[1]));
+                            return;
+                        }
+                    }
+                    case "handler" -> {
+                        if (parts[1].equalsIgnoreCase("me") && context.isPlayer()) {
+                            searchBuilder.handler(context.getSender());
+                        } else {
+                            // You might want to add player name to UUID lookup here
+                            context.replyError(Component.text("Handler search by name not implemented yet."));
+                            return;
+                        }
+                    }
+                    case "from", "to" -> {
+                        try {
+                            DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE;
+                            LocalDate date = LocalDate.parse(parts[1], formatter);
+                            Instant instant = date.atStartOfDay().toInstant(ZoneOffset.UTC);
+
+                            if (parts[0].equals("from")) {
+                                searchBuilder.dateRange(instant, null);
+                            } else {
+                                searchBuilder.dateRange(null, instant.plus(1, ChronoUnit.DAYS));
+                            }
+                        } catch (DateTimeParseException e) {
+                            context.replyError(Component.text("Invalid date format. Use YYYY-MM-DD"));
+                            return;
+                        }
+                    }
+                }
+            } else if (StringUtils.isNumeric(arg) && queryParts.isEmpty()) {
+                page = Math.max(1, Integer.parseInt(arg));
+            } else {
+                queryParts.add(arg);
+            }
+        }
+
+        // Set query and page
+        searchBuilder.query(String.join(" ", queryParts));
+        searchBuilder.pagination(page, 5);
+
+        // Perform search
+        AppealSearchResult result = appealManager.searchAppeals(searchBuilder.build());
+
+        if (result.appeals().isEmpty()) {
+            context.reply(Component.text("No appeals found matching your search criteria.")
+                    .color(NamedTextColor.YELLOW));
+            return;
+        }
+
+        // Build response message
+        Component message = Component.text("Search Results (Page " + result.currentPage() + "/" + result.totalPages() + ")")
+                .color(NamedTextColor.GOLD)
+                .decoration(TextDecoration.BOLD, true)
+                .append(Component.newline())
+                .append(Component.text("Total results: " + result.totalResults())
+                        .color(NamedTextColor.GRAY))
+                .append(Component.newline())
+                .append(Component.newline());
+
+        for (Appeal appeal : result.appeals()) {
+            message = message.append(Component.text("ID: ")
+                            .color(NamedTextColor.GRAY))
+                    .append(Component.text(appeal.id())
+                            .color(NamedTextColor.WHITE))
+                    .append(Component.text(" | Status: ")
+                            .color(NamedTextColor.GRAY))
+                    .append(Component.text(appeal.status().name())
+                            .color(getStatusColor(appeal.status())))
+                    .append(Component.text(" | Created: ")
+                            .color(NamedTextColor.GRAY))
+                    .append(Component.text(formatDate(appeal.createdAt()))
+                            .color(NamedTextColor.WHITE))
+                    .append(Component.newline())
+                    .append(Component.text("  Reason: ")
+                            .color(NamedTextColor.GRAY))
+                    .append(Component.text(appeal.reason())
+                            .color(NamedTextColor.WHITE))
+                    .append(Component.newline());
+
+            if (appeal.handlerId() != null) {
+                message = message.append(Component.text("  Handled by: ")
+                                .color(NamedTextColor.GRAY))
+                        .append(Component.text(appeal.handlerName())
+                                .color(NamedTextColor.WHITE))
+                        .append(Component.newline());
+            }
+
+            message = message.append(Component.newline());
+        }
+
+        // Add navigation help
+        if (result.totalPages() > 1) {
+            message = message.append(Component.text("Use /appealsearch ")
+                            .color(NamedTextColor.GRAY))
+                    .append(Component.text(String.join(" ", queryParts))
+                            .color(NamedTextColor.WHITE))
+                    .append(Component.text(" <page> to view more results")
+                            .color(NamedTextColor.GRAY));
+        }
+
+        context.reply(message);
     }
 }
