@@ -69,24 +69,19 @@ public class ServerCommand implements SimpleCommand {
     }
 
     private void showServerList(Player player) {
-        // Build the initial message
-        Component.Builder messageBuilder = Component.text()
+        Component.Builder builder = Component.text()
                 .append(Component.text("Available servers:", NamedTextColor.GOLD))
                 .append(Component.newline());
 
-        // Add each server to the message
         plugin.getProxyManager().getServers().forEach((id, server) -> {
             if (player.hasPermission("brennon.server." + id)) {
                 int playerCount = server.getPlayersConnected().size();
-                Component serverInfo = Component.text()
-                        .append(Component.text("- " + id + " ", NamedTextColor.YELLOW))
+                builder.append(Component.text("- " + id + " ", NamedTextColor.YELLOW))
                         .append(Component.text("(" + playerCount + " players)", NamedTextColor.GRAY))
-                        .append(Component.newline())
-                        .build();
-                messageBuilder.append(serverInfo);
+                        .append(Component.newline());
             }
         });
 
-        player.sendMessage(messageBuilder.build());
+        player.sendMessage(builder.build());
     }
 }

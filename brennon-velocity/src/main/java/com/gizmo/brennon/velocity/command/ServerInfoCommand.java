@@ -37,7 +37,7 @@ public class ServerInfoCommand implements SimpleCommand {
         }
 
         RegisteredServer server = targetServer.get();
-        Component.Builder info = Component.text()
+        Component message = Component.text()
                 .append(Component.text("Server Information: ", NamedTextColor.GOLD))
                 .append(Component.text(serverName, NamedTextColor.YELLOW))
                 .append(Component.newline())
@@ -46,21 +46,24 @@ public class ServerInfoCommand implements SimpleCommand {
                 .append(Component.newline())
                 .append(Component.text("Address: ", NamedTextColor.GOLD))
                 .append(Component.text(server.getServerInfo().getAddress().toString(), NamedTextColor.WHITE))
-                .append(Component.newline());
+                .build();
+
+        invocation.source().sendMessage(message);
 
         // Add player list if the source has permission
         if (invocation.source().hasPermission("brennon.command.serverinfo.players")) {
-            info.append(Component.text("Online Players:", NamedTextColor.GOLD))
+            Component playerList = Component.text()
+                    .append(Component.text("Online Players:", NamedTextColor.GOLD))
                     .append(Component.newline());
 
-            server.getPlayersConnected().forEach(player ->
-                    info.append(Component.text("- ", NamedTextColor.GRAY))
-                            .append(Component.text(player.getUsername(), NamedTextColor.WHITE))
-                            .append(Component.newline())
-            );
-        }
+            for (Player player : server.getPlayersConnected()) {
+                playerList = playerList.append(Component.text("- ", NamedTextColor.GRAY))
+                        .append(Component.text(player.getUsername(), NamedTextColor.WHITE))
+                        .append(Component.newline());
+            }
 
-        invocation.source().sendMessage(info.build());
+            invocation.source().sendMessage(playerList);
+        }
     }
 
     @Override

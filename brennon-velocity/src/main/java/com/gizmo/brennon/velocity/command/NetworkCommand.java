@@ -62,24 +62,24 @@ public class NetworkCommand implements SimpleCommand {
             return;
         }
 
-        Component.Builder status = Component.text()
+        Component.Builder statusBuilder = Component.text()
                 .append(Component.text("Network Status", NamedTextColor.GOLD))
                 .append(Component.newline());
 
         plugin.getProxyManager().getServers().forEach((name, server) -> {
-            status.append(Component.text(name + ": ", NamedTextColor.YELLOW))
+            statusBuilder.append(Component.text(name + ": ", NamedTextColor.YELLOW))
                     .append(Component.text(server.getPlayersConnected().size() + " players", NamedTextColor.WHITE))
                     .append(Component.newline());
         });
 
-        invocation.source().sendMessage(status.build());
+        invocation.source().sendMessage(statusBuilder.build());
     }
+}
 
     private void reloadNetwork(Invocation invocation) {
         try {
-            // Implement network reload logic here
-            plugin.getCore().reloadConfig();
-            invocation.source().sendMessage(Component.text("Network configuration reloaded successfully!", NamedTextColor.GREEN));
+            // For now, just notify that reload isn't implemented
+            invocation.source().sendMessage(Component.text("Network reload not implemented yet!", NamedTextColor.YELLOW));
         } catch (Exception e) {
             invocation.source().sendMessage(Component.text("Failed to reload network configuration!", NamedTextColor.RED));
             e.printStackTrace();

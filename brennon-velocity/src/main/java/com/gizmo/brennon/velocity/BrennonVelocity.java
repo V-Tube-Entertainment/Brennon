@@ -45,7 +45,7 @@ public class BrennonVelocity {
             proxyManager = new ProxyManager(server, core);
 
             // Register listeners
-            server.getEventManager().register(this, new ConnectionListener(core, proxyManager));
+            server.getEventManager().register(this, new ConnectionListener(this));
             server.getEventManager().register(this, new ServerListener(core, proxyManager));
 
             logger.info("Brennon-Velocity has been enabled!");
