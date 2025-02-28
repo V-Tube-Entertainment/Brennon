@@ -1,8 +1,8 @@
 package com.gizmo.brennon.velocity.listener;
 
 import com.velocitypowered.api.event.Subscribe;
-import com.velocitypowered.api.event.server.ServerConnectedEvent;
-import com.velocitypowered.api.event.server.ServerDisconnectEvent;
+import com.velocitypowered.api.event.player.ServerPostConnectEvent;
+import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.gizmo.brennon.core.BrennonCore;
 import com.gizmo.brennon.core.server.ServerManager;
@@ -20,36 +20,43 @@ public class ServerListener {
     }
 
     @Subscribe
-    public void onServerConnected(ServerConnectedEvent event) {
-        RegisteredServer server = event.getServer();
-        String serverId = server.getServerInfo().getName();
+    public void onServerConnected(ServerPostConnectEvent event) {
+        RegisteredServer server = event.getPlayer().getCurrentServer()
+                .map(connection -> connection.getServer())
+                .orElse(null);
 
-        // Update server metrics
-        serverManager.getServer(serverId).ifPresent(info -> {
-            int playerCount = server.getPlayersConnected().size();
-            // Update player count in metrics
-            core.getNetworkMonitor().recordMetrics(
-                    info.createMetricsBuilder()
-                            .onlinePlayers(playerCount)
-                            .build()
-            );
-        });
+        if (server != null) {
+            String serverId = server.getServerInfo().getName();
+
+            // Update server metrics
+            serverManager.getServer(serverId).ifPresent(info -> {
+                int playerCount = server.getPlayersConnected().size();
+                // Update player count in metrics
+                core.getNetworkMonitor().recordMetrics(
+                        info.createMetricsBuilder()
+                                .onlinePlayers(playerCount)
+                                .build()
+                );
+            });
+        }
     }
 
     @Subscribe
-    public void onServerDisconnect(ServerDisconnectEvent event) {
-        RegisteredServer server = event.getServer();
-        String serverId = server.getServerInfo().getName();
+    public void onServerPreConnect(ServerPreConnectEvent event) {
+        if (event.getResult().getServer().isPresent()) {
+            RegisteredServer server = event.getResult().getServer().get();
+            String serverId = server.getServerInfo().getName();
 
-        // Update server metrics
-        serverManager.getServer(serverId).ifPresent(info -> {
-            int playerCount = server.getPlayersConnected().size();
-            // Update player count in metrics
-            core.getNetworkMonitor().recordMetrics(
-                    info.createMetricsBuilder()
-                            .onlinePlayers(playerCount)
-                            .build()
-            );
-        });
+            // Update server metrics before connection
+            serverManager.getServer(serverId).ifPresent(info -> {
+                int playerCount = server.getPlayersConnected().size();
+                // Update player count in metrics
+                core.getNetworkMonitor().recordMetrics(
+                        info.createMetricsBuilder()
+                                .onlinePlayers(playerCount)
+                                .build()
+                );
+            });
+        }
     }
 }
