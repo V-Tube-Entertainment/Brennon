@@ -1,77 +1,93 @@
 package com.gizmo.brennon.velocity.listener;
 
 import com.velocitypowered.api.event.Subscribe;
-import com.velocitypowered.api.event.player.ServerPostConnectEvent;
-import com.velocitypowered.api.event.player.ServerPreConnectEvent;
+import com.velocitypowered.api.event.proxy.ProxyPingEvent;
+import com.velocitypowered.api.event.server.ServerConnectEvent;
+import com.velocitypowered.api.event.server.ServerConnectedEvent;
+import com.velocitypowered.api.event.server.ServerDisconnectEvent;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
-import com.gizmo.brennon.core.BrennonCore;
-import com.gizmo.brennon.core.server.ServerManager;
-import com.gizmo.brennon.core.messaging.ServerStatus;
-import com.gizmo.brennon.core.messaging.ServerStatusMessage;
-import com.gizmo.brennon.velocity.manager.ProxyManager;
-import com.google.gson.Gson;
+import com.gizmo.brennon.velocity.BrennonVelocity;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 
-import java.time.Instant;
+import java.util.Optional;
 
+/**
+ * Handles server-related events
+ *
+ * @author Gizmo0320
+ * @since 2025-02-28 20:48:42
+ */
 public class ServerListener {
-    private final BrennonCore core;
-    private final ProxyManager proxyManager;
-    private final ServerManager serverManager;
-    private final Gson gson;
+    private final BrennonVelocity plugin;
 
-    public ServerListener(BrennonCore core, ProxyManager proxyManager) {
-        this.core = core;
-        this.proxyManager = proxyManager;
-        this.serverManager = core.getServerManager();
-        this.gson = new Gson();
+    public ServerListener(BrennonVelocity plugin) {
+        this.plugin = plugin;
     }
 
     @Subscribe
-    public void onServerConnected(ServerPostConnectEvent event) {
-        RegisteredServer server = event.getPlayer().getCurrentServer()
-                .map(connection -> connection.getServer())
-                .orElse(null);
+    public void onServerConnect(ServerConnectEvent event) {
+        RegisteredServer target = event.getTarget();
 
-        if (server != null) {
-            String serverId = server.getServerInfo().getName();
+        // Check if server exists
+        if (!plugin.getProxyManager().getServer(target.getServerInfo().getName()).isPresent()) {
+            event.setResult(ServerConnectEvent.ServerResult.denied());
+            event.getPlayer().sendMessage(Component.text("That server is currently unavailable!", NamedTextColor.RED));
+            return;
+        }
 
-            serverManager.getServer(serverId).ifPresent(info -> {
-                int playerCount = server.getPlayersConnected().size();
-                ServerStatusMessage statusMessage = new ServerStatusMessage(
-                        serverId,
-                        ServerStatus.ONLINE,
-                        playerCount,
-                        -1, // Velocity doesn't track max players at proxy level
-                        20.0,
-                        0.0,
-                        Instant.now()
-                );
-
-                core.getMessageBroker().publish("brennon:server:status", gson.toJson(statusMessage));
-            });
+        // Check if server is at capacity
+        if (target.getPlayersConnected().size() >= plugin.getConfigManager().getConfig().getMaxPlayersPerServer()) {
+            // Try to find alternative server
+            Optional<RegisteredServer> alternative = plugin.getProxyManager().findBestServer(target.getServerInfo().getName());
+            if (alternative.isPresent() && !alternative.get().equals(target)) {
+                event.setTarget(alternative.get());
+                event.getPlayer().sendMessage(Component.text("Redirecting to a less crowded server...", NamedTextColor.YELLOW));
+            } else {
+                event.setResult(ServerConnectEvent.ServerResult.denied());
+                event.getPlayer().sendMessage(Component.text("That server is currently full!", NamedTextColor.RED));
+            }
         }
     }
 
     @Subscribe
-    public void onServerPreConnect(ServerPreConnectEvent event) {
-        if (event.getResult().getServer().isPresent()) {
-            RegisteredServer server = event.getResult().getServer().get();
-            String serverId = server.getServerInfo().getName();
+    public void onServerConnected(ServerConnectedEvent event) {
+        // Update server status
+        plugin.getCore().getServerManager().updateServerStatus(
+                event.getServer().getServerInfo().getName(),
+                event.getServer().getPlayersConnected().size()
+        );
 
-            serverManager.getServer(serverId).ifPresent(info -> {
-                int playerCount = server.getPlayersConnected().size();
-                ServerStatusMessage statusMessage = new ServerStatusMessage(
-                        serverId,
-                        ServerStatus.ONLINE,
-                        playerCount,
-                        -1, // Velocity doesn't track max players at proxy level
-                        20.0,
-                        0.0,
-                        Instant.now()
-                );
+        // Send welcome message
+        event.getPlayer().sendMessage(Component.text()
+                .append(Component.text("Connected to ", NamedTextColor.GREEN))
+                .append(Component.text(event.getServer().getServerInfo().getName(), NamedTextColor.YELLOW))
+                .build());
+    }
 
-                core.getMessageBroker().publish("brennon:server:status", gson.toJson(statusMessage));
-            });
+    @Subscribe
+    public void onServerDisconnect(ServerDisconnectEvent event) {
+        if (event.getServer() != null) {
+            // Update server status
+            plugin.getCore().getServerManager().updateServerStatus(
+                    event.getServer().getServerInfo().getName(),
+                    event.getServer().getPlayersConnected().size() - 1  // Subtract 1 as player is leaving
+            );
+        }
+    }
+
+    @Subscribe
+    public void onProxyPing(ProxyPingEvent event) {
+        if (plugin.getConfigManager().getConfig().isMaintenance()) {
+            // Show maintenance MOTD
+            event.setPing(event.getPing().asBuilder()
+                    .description(Component.text(plugin.getConfigManager().getConfig().getMaintenanceMotd(), NamedTextColor.RED))
+                    .build());
+        } else {
+            // Show normal MOTD
+            event.setPing(event.getPing().asBuilder()
+                    .description(Component.text(plugin.getConfigManager().getConfig().getMotd()))
+                    .build());
         }
     }
 }
