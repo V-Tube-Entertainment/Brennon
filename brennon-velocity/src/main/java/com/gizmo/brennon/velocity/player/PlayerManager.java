@@ -21,7 +21,7 @@ import java.util.logging.Logger;
  * Manages player data and caching
  *
  * @author Gizmo0320
- * @since 2025-03-01 05:04:50
+ * @since 2025-03-01 05:16:09
  */
 public class PlayerManager {
     private final BrennonVelocity plugin;
@@ -37,12 +37,22 @@ public class PlayerManager {
         this.playerDataFolder = plugin.getDataDirectory().resolve("players");
         this.gson = new GsonBuilder().setPrettyPrinting().create();
 
-        // Create player data directory if it doesn't exist
         try {
             Files.createDirectories(playerDataFolder);
         } catch (IOException e) {
             logger.severe("Failed to create player data directory: " + e.getMessage());
         }
+    }
+
+    /**
+     * Initializes a player's data when they join
+     *
+     * @param player The player to initialize
+     */
+    public void initializePlayer(Player player) {
+        VelocityPlayer vPlayer = new VelocityPlayer(player, plugin.getServer());
+        players.put(player.getUniqueId(), vPlayer);
+        handleJoin(player);
     }
 
     /**
@@ -55,7 +65,7 @@ public class PlayerManager {
         return players.computeIfAbsent(player.getUniqueId(), k -> {
             VelocityPlayer vPlayer = loadPlayer(player);
             if (vPlayer == null) {
-                vPlayer = new VelocityPlayer(player);
+                vPlayer = new VelocityPlayer(player, plugin.getServer());
                 savePlayer(vPlayer);
             }
             return vPlayer;
@@ -113,6 +123,11 @@ public class PlayerManager {
         }
     }
 
+    /**
+     * Removes player data from memory and saves to disk
+     *
+     * @param player The player to clean up
+     */
     public void cleanupPlayer(Player player) {
         VelocityPlayer vPlayer = players.remove(player.getUniqueId());
         if (vPlayer != null) {
@@ -131,11 +146,9 @@ public class PlayerManager {
         vPlayer.setLastJoin(Instant.now());
         vPlayer.setLastKnownAddress(player.getRemoteAddress().getAddress().getHostAddress());
 
-        // Update server if they're connected to one
         player.getCurrentServer().ifPresent(server ->
                 vPlayer.setLastServer(server.getServerInfo().getName()));
 
-        // Broadcast join message to staff
         if (player.hasPermission("brennon.staff")) {
             plugin.getServer().getAllPlayers().stream()
                     .filter(p -> p.hasPermission("brennon.staff"))
@@ -152,10 +165,21 @@ public class PlayerManager {
      *
      * @param player The leaving player
      */
-    public void handleQuit(Player player) {
+    private void handleQuit(Player player) {
         VelocityPlayer vPlayer = players.remove(player.getUniqueId());
         if (vPlayer != null) {
             savePlayer(vPlayer);
+
+            // Notify staff if the player is staff
+            if (player.hasPermission("brennon.staff")) {
+                plugin.getServer().getAllPlayers().stream()
+                        .filter(p -> p.hasPermission("brennon.staff"))
+                        .forEach(p -> p.sendMessage(Component.text()
+                                .append(Component.text("[Staff] ", NamedTextColor.RED))
+                                .append(Component.text(player.getUsername(), NamedTextColor.YELLOW))
+                                .append(Component.text(" has left the network", NamedTextColor.GRAY))
+                                .build()));
+            }
         }
     }
 
@@ -169,6 +193,18 @@ public class PlayerManager {
         VelocityPlayer vPlayer = getPlayer(player);
         vPlayer.setLastServer(serverName);
         savePlayer(vPlayer);
+
+        // Notify staff if the player is staff
+        if (player.hasPermission("brennon.staff")) {
+            plugin.getServer().getAllPlayers().stream()
+                    .filter(p -> p.hasPermission("brennon.staff"))
+                    .forEach(p -> p.sendMessage(Component.text()
+                            .append(Component.text("[Staff] ", NamedTextColor.RED))
+                            .append(Component.text(player.getUsername(), NamedTextColor.YELLOW))
+                            .append(Component.text(" has connected to ", NamedTextColor.GRAY))
+                            .append(Component.text(serverName, NamedTextColor.GREEN))
+                            .build()));
+        }
     }
 
     /**
