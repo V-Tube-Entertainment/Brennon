@@ -155,4 +155,51 @@ public class RedisManager implements Service {
     public boolean isHealthy() {
         return redisClient != null && pubSubConnection != null && !pubSubConnection.isOpen();
     }
+    // Add these methods to the existing RedisManager class
+
+    /**
+     * Reconnects to Redis and reestablishes all connections
+     *
+     * @author Gizmo0320
+     * @since 2025-03-01 04:58:17
+     * @throws Exception if reconnection fails
+     */
+    public void reconnect() throws Exception {
+        logger.info("Reconnecting to Redis...");
+
+        // Store current handlers
+        Map<String, MessageHandler> currentHandlers = new ConcurrentHashMap<>(channelHandlers);
+
+        try {
+            // Close existing connections
+            disable();
+
+            // Clear handlers before reconnecting
+            channelHandlers.clear();
+
+            // Reinitialize connections
+            enable();
+
+            // Restore subscriptions
+            currentHandlers.forEach(this::subscribe);
+
+            logger.info("Redis reconnection successful");
+        } catch (Exception e) {
+            logger.error("Failed to reconnect to Redis", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Creates a new PubSub connection
+     *
+     * @return A new PubSub connection
+     * @throws IllegalStateException if Redis client is not initialized
+     */
+    public StatefulRedisPubSubConnection<String, String> createPubSubConnection() {
+        if (redisClient == null) {
+            throw new IllegalStateException("Redis client not initialized");
+        }
+        return redisClient.connectPubSub();
+    }
 }
