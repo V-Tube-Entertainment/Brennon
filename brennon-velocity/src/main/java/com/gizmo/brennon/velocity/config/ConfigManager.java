@@ -3,17 +3,17 @@ package com.gizmo.brennon.velocity.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.gizmo.brennon.velocity.BrennonVelocity;
-import org.slf4j.Logger;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.logging.Logger;
 
 /**
  * Manages configuration loading and saving for the Velocity module
  *
  * @author Gizmo0320
- * @since 2025-03-01 03:35:12
+ * @since 2025-03-01 05:01:52
  */
 public class ConfigManager {
     private final BrennonVelocity plugin;
@@ -45,7 +45,7 @@ public class ConfigManager {
                 }
             }
         } catch (IOException e) {
-            logger.error("Failed to load configuration", e);
+            logger.severe("Failed to load configuration: " + e.getMessage());
             config = new Config();
         }
     }
@@ -60,7 +60,7 @@ public class ConfigManager {
                 gson.toJson(config, writer);
             }
         } catch (IOException e) {
-            logger.error("Failed to save configuration", e);
+            logger.severe("Failed to save configuration: " + e.getMessage());
         }
     }
 
@@ -77,7 +77,7 @@ public class ConfigManager {
 
         // Validate loaded config
         if (config == null) {
-            logger.error("Failed to load configuration, rolling back to previous config");
+            logger.severe("Failed to load configuration, rolling back to previous config");
             config = oldConfig;
             saveConfig();
             throw new IllegalStateException("Failed to load configuration");
