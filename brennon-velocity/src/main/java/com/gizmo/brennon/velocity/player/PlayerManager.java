@@ -10,6 +10,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
@@ -112,14 +113,22 @@ public class PlayerManager {
         }
     }
 
+    public void cleanupPlayer(Player player) {
+        VelocityPlayer vPlayer = players.remove(player.getUniqueId());
+        if (vPlayer != null) {
+            savePlayer(vPlayer);
+        }
+        handleQuit(player);
+    }
+
     /**
      * Called when a player joins the server
      *
      * @param player The joining player
      */
-    public void handleJoin(Player player) {
+    private void handleJoin(Player player) {
         VelocityPlayer vPlayer = getPlayer(player);
-        vPlayer.setLastJoin(java.time.Instant.now());
+        vPlayer.setLastJoin(Instant.now());
         vPlayer.setLastKnownAddress(player.getRemoteAddress().getAddress().getHostAddress());
 
         // Update server if they're connected to one
