@@ -1,6 +1,7 @@
 package com.gizmo.brennon.velocity.player;
 
 import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.api.proxy.ProxyServer;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
@@ -13,7 +14,7 @@ import java.util.UUID;
  * Represents a player on the Velocity proxy
  *
  * @author Gizmo0320
- * @since 2025-03-01 05:04:50
+ * @since 2025-03-01 05:18:45
  */
 public class VelocityPlayer {
     private final UUID uniqueId;
@@ -28,16 +29,18 @@ public class VelocityPlayer {
     private final Instant firstJoin;
     private Instant lastJoin;
     private String lastKnownAddress;
+    private final transient ProxyServer server;
 
-    public VelocityPlayer(Player player) {
+    public VelocityPlayer(Player player, ProxyServer server) {
         this.uniqueId = player.getUniqueId();
         this.username = player.getUsername();
         this.permissions = new HashSet<>();
         this.firstJoin = Instant.now();
         this.lastJoin = Instant.now();
         this.lastKnownAddress = player.getRemoteAddress().getAddress().getHostAddress();
-        player.getCurrentServer().ifPresent(server ->
-                this.lastServer = server.getServerInfo().getName());
+        this.server = server;
+        player.getCurrentServer().ifPresent(serverConnection ->
+                this.lastServer = serverConnection.getServerInfo().getName());
     }
 
     // Getters
@@ -67,9 +70,9 @@ public class VelocityPlayer {
     public void setLastKnownAddress(String address) { this.lastKnownAddress = address; }
 
     // Permission management
-    public void addPermission(String permission) { permissions.add(permission); }
-    public void removePermission(String permission) { permissions.remove(permission); }
-    public boolean hasPermission(String permission) { return permissions.contains(permission); }
+    public void addPermission(String permission) { permissions.add(permission.toLowerCase()); }
+    public void removePermission(String permission) { permissions.remove(permission.toLowerCase()); }
+    public boolean hasPermission(String permission) { return permissions.contains(permission.toLowerCase()); }
 
     // Utility methods
     public void sendMessage(Component message) {
@@ -84,9 +87,7 @@ public class VelocityPlayer {
     }
 
     public Player getPlayer() {
-        return BrennonVelocity.getInstance().getServer()
-                .getPlayer(uniqueId)
-                .orElse(null);
+        return server.getPlayer(uniqueId).orElse(null);
     }
 
     public boolean isOnline() {

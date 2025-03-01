@@ -14,7 +14,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
  * Handles player connection events
  *
  * @author Gizmo0320
- * @since 2025-02-28 20:48:42
+ * @since 2025-03-01 05:18:45
  */
 public class ConnectionListener {
     private final BrennonVelocity plugin;
@@ -47,6 +47,13 @@ public class ConnectionListener {
             ));
             return;
         }
+
+        // Check if player is banned
+        if (plugin.getBanManager().isBanned(player.getUniqueId())) {
+            event.setResult(LoginEvent.ComponentResult.denied(
+                    plugin.getBanManager().getBanMessage(player.getUniqueId())
+            ));
+        }
     }
 
     @Subscribe
@@ -56,22 +63,12 @@ public class ConnectionListener {
         // Initialize player data
         plugin.getPlayerManager().initializePlayer(player);
 
-        // Send welcome message
-        player.sendMessage(Component.text()
-                .append(Component.text("Welcome to ", NamedTextColor.GREEN))
-                .append(Component.text(plugin.getConfigManager().getConfig().getServerName(), NamedTextColor.YELLOW))
-                .append(Component.text("!", NamedTextColor.GREEN))
-                .build());
+        // Process join messages and alerts
+        sendJoinMessages(player);
 
-        // Broadcast join message to staff
-        if (player.hasPermission("brennon.staff")) {
-            plugin.getServer().getAllPlayers().stream()
-                    .filter(p -> p.hasPermission("brennon.staff"))
-                    .forEach(p -> p.sendMessage(Component.text()
-                            .append(Component.text("[Staff] ", NamedTextColor.RED))
-                            .append(Component.text(player.getUsername(), NamedTextColor.YELLOW))
-                            .append(Component.text(" has joined the network", NamedTextColor.GREEN))
-                            .build()));
+        // Handle first join
+        if (!player.hasPlayedBefore()) {
+            handleFirstJoin(player);
         }
     }
 
@@ -82,15 +79,13 @@ public class ConnectionListener {
         // Clean up player data
         plugin.getPlayerManager().cleanupPlayer(player);
 
-        // Broadcast leave message to staff
+        // Process quit messages
         if (player.hasPermission("brennon.staff")) {
-            plugin.getServer().getAllPlayers().stream()
-                    .filter(p -> p.hasPermission("brennon.staff"))
-                    .forEach(p -> p.sendMessage(Component.text()
-                            .append(Component.text("[Staff] ", NamedTextColor.RED))
-                            .append(Component.text(player.getUsername(), NamedTextColor.YELLOW))
-                            .append(Component.text(" has left the network", NamedTextColor.RED))
-                            .build()));
+            broadcastStaffMessage(
+                    player.getUsername(),
+                    " has left the network",
+                    NamedTextColor.RED
+            );
         }
     }
 
@@ -102,5 +97,47 @@ public class ConnectionListener {
                 event.setResult(ServerPreConnectEvent.ServerResult.allowed(server));
             });
         }
+    }
+
+    private void sendJoinMessages(Player player) {
+        // Send welcome message
+        player.sendMessage(Component.text()
+                .append(Component.text("Welcome to ", NamedTextColor.GREEN))
+                .append(Component.text(plugin.getConfigManager().getConfig().getServerName(), NamedTextColor.YELLOW))
+                .append(Component.text("!", NamedTextColor.GREEN))
+                .build());
+
+        // Broadcast staff join
+        if (player.hasPermission("brennon.staff")) {
+            broadcastStaffMessage(
+                    player.getUsername(),
+                    " has joined the network",
+                    NamedTextColor.GREEN
+            );
+        }
+    }
+
+    private void handleFirstJoin(Player player) {
+        // Broadcast first join message
+        plugin.getServer().getAllPlayers().forEach(p ->
+                p.sendMessage(Component.text()
+                        .append(Component.text("Welcome ", NamedTextColor.GREEN))
+                        .append(Component.text(player.getUsername(), NamedTextColor.YELLOW))
+                        .append(Component.text(" to the server for the first time!", NamedTextColor.GREEN))
+                        .build())
+        );
+
+        // Apply first join settings
+        plugin.getPlayerManager().getPlayer(player).addPermission("brennon.basic");
+    }
+
+    private void broadcastStaffMessage(String playerName, String message, NamedTextColor messageColor) {
+        plugin.getServer().getAllPlayers().stream()
+                .filter(p -> p.hasPermission("brennon.staff"))
+                .forEach(p -> p.sendMessage(Component.text()
+                        .append(Component.text("[Staff] ", NamedTextColor.RED))
+                        .append(Component.text(playerName, NamedTextColor.YELLOW))
+                        .append(Component.text(message, messageColor))
+                        .build()));
     }
 }
