@@ -4,9 +4,10 @@ import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyPingEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
-import com.velocitypowered.api.event.player.ServerDisconnectEvent;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.gizmo.brennon.velocity.BrennonVelocity;
+import com.gizmo.brennon.core.server.ServerInfo;
+import com.gizmo.brennon.core.server.ServerStatus;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
@@ -16,7 +17,7 @@ import java.util.Optional;
  * Handles server-related events
  *
  * @author Gizmo0320
- * @since 2025-03-01 03:05:15
+ * @since 2025-03-01 03:24:31
  */
 public class ServerListener {
     private final BrennonVelocity plugin;
@@ -27,57 +28,72 @@ public class ServerListener {
 
     @Subscribe
     public void onServerPreConnect(ServerPreConnectEvent event) {
-        RegisteredServer target = event.getServer();
+        Optional<RegisteredServer> target = event.getResult().getServer();
+        if (!target.isPresent()) {
+            return;
+        }
 
-        // Check if server exists
-        if (!plugin.getProxyManager().getServer(target.getServerInfo().getName()).isPresent()) {
+        RegisteredServer targetServer = target.get();
+        String serverId = targetServer.getServerInfo().getName();
+
+        // Get server info from core
+        Optional<ServerInfo> serverInfo = plugin.getCore().getServerManager().getServer(serverId);
+
+        if (!serverInfo.isPresent() || serverInfo.get().status() == ServerStatus.OFFLINE) {
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
             event.getPlayer().sendMessage(Component.text("That server is currently unavailable!", NamedTextColor.RED));
             return;
         }
 
         // Check if server is at capacity
-        if (target.getPlayersConnected().size() >= plugin.getConfigManager().getConfig().getMaxPlayersPerServer()) {
-            // Try to find alternative server
-            Optional<RegisteredServer> alternative = plugin.getProxyManager().findBestServer(target.getServerInfo().getName());
-            if (alternative.isPresent() && !alternative.get().equals(target)) {
+        ServerInfo server = serverInfo.get();
+        if (server.isFull() && !event.getPlayer().hasPermission("brennon.bypass.serverfull")) {
+            // Try to find alternative server in the same group
+            Optional<RegisteredServer> alternative = plugin.getProxyManager().findBestServer(server.group());
+
+            if (alternative.isPresent()) {
                 event.setResult(ServerPreConnectEvent.ServerResult.allowed(alternative.get()));
                 event.getPlayer().sendMessage(Component.text("Redirecting to a less crowded server...", NamedTextColor.YELLOW));
             } else {
                 event.setResult(ServerPreConnectEvent.ServerResult.denied());
                 event.getPlayer().sendMessage(Component.text("That server is currently full!", NamedTextColor.RED));
             }
+            return;
+        }
+
+        // Check if server is restricted
+        if (server.restricted() && !event.getPlayer().hasPermission("brennon.server." + server.id())) {
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            event.getPlayer().sendMessage(Component.text("You don't have permission to join this server!", NamedTextColor.RED));
         }
     }
 
     @Subscribe
     public void onServerConnected(ServerConnectedEvent event) {
-        // Update server status
-        plugin.getCore().getServerManager().updateServerStatus(
-                event.getServer().getServerInfo().getName(),
-                event.getServer().getPlayersConnected().size()
-        );
-
         // Send welcome message
         event.getPlayer().sendMessage(Component.text()
                 .append(Component.text("Connected to ", NamedTextColor.GREEN))
                 .append(Component.text(event.getServer().getServerInfo().getName(), NamedTextColor.YELLOW))
                 .build());
-    }
 
-    @Subscribe
-    public void onServerDisconnect(ServerDisconnectEvent event) {
-        if (event.getServer() != null) {
-            // Update server status
-            plugin.getCore().getServerManager().updateServerStatus(
-                    event.getServer().getServerInfo().getName(),
-                    event.getServer().getPlayersConnected().size() - 1  // Subtract 1 as player is leaving
-            );
-        }
+        // Note: The core's LoadBalancer and ServerManager will handle player counts
+        // through their own monitoring systems, so we don't need to update them here
     }
 
     @Subscribe
     public void onProxyPing(ProxyPingEvent event) {
+        // Check if any lobbies are online
+        boolean hasOnlineLobby = plugin.getCore().getServerManager()
+                .getServersByType("LOBBY").stream()
+                .anyMatch(ServerInfo::isOnline);
+
+        if (!hasOnlineLobby) {
+            event.setPing(event.getPing().asBuilder()
+                    .description(Component.text("Server is currently unavailable!", NamedTextColor.RED))
+                    .build());
+            return;
+        }
+
         if (plugin.getConfigManager().getConfig().isMaintenance()) {
             // Show maintenance MOTD
             event.setPing(event.getPing().asBuilder()

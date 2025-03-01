@@ -1,27 +1,33 @@
 package com.gizmo.brennon.velocity.config;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.ArrayList;
 
+/**
+ * Configuration class for the Velocity platform
+ *
+ * @author Gizmo0320
+ * @since 2025-03-01 03:09:19
+ */
 public class Config {
-    private String motd;
-    private boolean maintenance;
-    private String maintenanceMotd;
-    private List<String> maintenanceWhitelist;
-    private Map<String, ServerConfig> servers;
-    private ChatConfig chat;
-    private boolean debugMode;
+    private String serverName = "Brennon Network";
+    private String motd = "Welcome to Brennon Network!";
+    private String maintenanceMotd = "Server is currently under maintenance";
+    private boolean maintenance = false;
+    private List<String> maintenanceWhitelist = new ArrayList<>();
+    private int maxPlayers = 1000;
+    private int maxPlayersPerServer = 100;
+    private boolean filterEnabled = true;
+    private List<String> filteredWords = new ArrayList<>();
+    private String globalChatFormat = "[%server%] %player%: %message%";
 
-    public Config() {
-        this.motd = "§6Brennon Network";
-        this.maintenance = false;
-        this.maintenanceMotd = "§cServer is currently under maintenance";
-        this.maintenanceWhitelist = new ArrayList<>();
-        this.servers = new HashMap<>();
-        this.chat = new ChatConfig();
-        this.debugMode = false;
+    // Getters and setters
+    public String getServerName() {
+        return serverName;
+    }
+
+    public void setServerName(String serverName) {
+        this.serverName = serverName;
     }
 
     public String getMotd() {
@@ -32,20 +38,20 @@ public class Config {
         this.motd = motd;
     }
 
-    public boolean isMaintenance() {
-        return maintenance;
-    }
-
-    public void setMaintenance(boolean maintenance) {
-        this.maintenance = maintenance;
-    }
-
     public String getMaintenanceMotd() {
         return maintenanceMotd;
     }
 
     public void setMaintenanceMotd(String maintenanceMotd) {
         this.maintenanceMotd = maintenanceMotd;
+    }
+
+    public boolean isMaintenance() {
+        return maintenance;
+    }
+
+    public void setMaintenance(boolean maintenance) {
+        this.maintenance = maintenance;
     }
 
     public List<String> getMaintenanceWhitelist() {
@@ -56,129 +62,43 @@ public class Config {
         this.maintenanceWhitelist = maintenanceWhitelist;
     }
 
-    public Map<String, ServerConfig> getServers() {
-        return servers;
+    public int getMaxPlayers() {
+        return maxPlayers;
     }
 
-    public void setServers(Map<String, ServerConfig> servers) {
-        this.servers = servers;
+    public void setMaxPlayers(int maxPlayers) {
+        this.maxPlayers = maxPlayers;
     }
 
-    public ChatConfig getChat() {
-        return chat;
+    public int getMaxPlayersPerServer() {
+        return maxPlayersPerServer;
     }
 
-    public void setChat(ChatConfig chat) {
-        this.chat = chat;
+    public void setMaxPlayersPerServer(int maxPlayersPerServer) {
+        this.maxPlayersPerServer = maxPlayersPerServer;
     }
 
-    public boolean isDebugMode() {
-        return debugMode;
+    public boolean isFilterEnabled() {
+        return filterEnabled;
     }
 
-    public void setDebugMode(boolean debugMode) {
-        this.debugMode = debugMode;
+    public void setFilterEnabled(boolean filterEnabled) {
+        this.filterEnabled = filterEnabled;
     }
 
-    public static class ServerConfig {
-        private String address;
-        private int port;
-        private boolean restricted;
-        private List<String> allowedGroups;
-
-        public ServerConfig() {
-            this.address = "localhost";
-            this.port = 25565;
-            this.restricted = false;
-            this.allowedGroups = new ArrayList<>();
-        }
-
-        public String getAddress() {
-            return address;
-        }
-
-        public void setAddress(String address) {
-            this.address = address;
-        }
-
-        public int getPort() {
-            return port;
-        }
-
-        public void setPort(int port) {
-            this.port = port;
-        }
-
-        public boolean isRestricted() {
-            return restricted;
-        }
-
-        public void setRestricted(boolean restricted) {
-            this.restricted = restricted;
-        }
-
-        public List<String> getAllowedGroups() {
-            return allowedGroups;
-        }
-
-        public void setAllowedGroups(List<String> allowedGroups) {
-            this.allowedGroups = allowedGroups;
-        }
+    public List<String> getFilteredWords() {
+        return filteredWords;
     }
 
-    public static class ChatConfig {
-        private boolean globalChat;
-        private String globalChatFormat;
-        private String staffChatFormat;
-        private List<String> filteredWords;
-        private boolean filterEnabled;
+    public void setFilteredWords(List<String> filteredWords) {
+        this.filteredWords = filteredWords;
+    }
 
-        public ChatConfig() {
-            this.globalChat = true;
-            this.globalChatFormat = "§7[%server%] %prefix%%player%%suffix%: %message%";
-            this.staffChatFormat = "§c[STAFF] %player%: %message%";
-            this.filteredWords = new ArrayList<>();
-            this.filterEnabled = true;
-        }
+    public String getGlobalChatFormat() {
+        return globalChatFormat;
+    }
 
-        public boolean isGlobalChat() {
-            return globalChat;
-        }
-
-        public void setGlobalChat(boolean globalChat) {
-            this.globalChat = globalChat;
-        }
-
-        public String getGlobalChatFormat() {
-            return globalChatFormat;
-        }
-
-        public void setGlobalChatFormat(String globalChatFormat) {
-            this.globalChatFormat = globalChatFormat;
-        }
-
-        public String getStaffChatFormat() {
-            return staffChatFormat;
-        }
-
-        public void setStaffChatFormat(String staffChatFormat) {
-            this.staffChatFormat = staffChatFormat;
-        }
-
-        public List<String> getFilteredWords() {
-            return filteredWords;
-        }
-
-        public void setFilteredWords(List<String> filteredWords) {
-            this.filteredWords = filteredWords;
-        }
-
-        public boolean isFilterEnabled() {
-            return filterEnabled;
-        }
-
-        public void setFilterEnabled(boolean filterEnabled) {
-            this.filterEnabled = filterEnabled;
-        }
+    public void setGlobalChatFormat(String globalChatFormat) {
+        this.globalChatFormat = globalChatFormat;
     }
 }

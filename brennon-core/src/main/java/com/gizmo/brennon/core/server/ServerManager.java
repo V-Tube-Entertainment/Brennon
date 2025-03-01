@@ -106,6 +106,16 @@ public class ServerManager implements Service {
                     case "HEARTBEAT" -> handleHeartbeat(data);
                     case "STATUS" -> handleStatusUpdate(data);
                     case "SHUTDOWN" -> handleServerShutdown(serverId);
+                    case "STATUS_REQUEST" -> {
+                        // Re-request heartbeat from the server
+                        if (servers.containsKey(serverId)) {
+                            JsonObject response = new JsonObject();
+                            response.addProperty("type", "STATUS_REQUEST_ACK");
+                            response.addProperty("serverId", serverId);
+                            response.addProperty("timestamp", System.currentTimeMillis());
+                            messageBroker.publish("brennon:servers", gson.toJson(response));
+                        }
+                    }
                     default -> logger.warn("Unknown server message type: {}", type);
                 }
             } catch (Exception e) {
@@ -397,5 +407,52 @@ public class ServerManager implements Service {
     public boolean hasAvailableServers(String group) {
         return getServersByGroup(group).stream()
                 .anyMatch(server -> server.isOnline() && !server.isFull());
+    }
+
+    /**
+     * Requests a status refresh from a server through the message broker.
+     * The server should respond with a heartbeat message.
+     *
+     * @param serverId The ID of the server to refresh
+     * @author Gizmo0320
+     * @since 2025-03-01 03:30:58
+     */
+    public void refreshServerStatus(String serverId) {
+        ServerInfo server = servers.get(serverId);
+        if (server != null) {
+            // Request status update
+            JsonObject data = new JsonObject();
+            data.addProperty("type", "STATUS_REQUEST");
+            data.addProperty("serverId", serverId);
+            data.addProperty("timestamp", System.currentTimeMillis());
+
+            messageBroker.publish("brennon:servers", gson.toJson(data));
+
+            // Update last heartbeat time
+            ServerInfo updatedServer = new ServerInfo(
+                    server.id(),
+                    server.name(),
+                    server.type(),
+                    server.group(),
+                    server.host(),
+                    server.port(),
+                    server.restricted(),
+                    server.status(),
+                    server.properties(),
+                    server.maxPlayers(),
+                    server.onlinePlayers(),
+                    server.tps(),
+                    server.memoryUsage(),
+                    server.cpuUsage(),
+                    System.currentTimeMillis(),
+                    server.uptime(),
+                    server.createdAt()
+            );
+            servers.put(serverId, updatedServer);
+
+            logger.debug("Requested status refresh for server {}", serverId);
+        } else {
+            logger.warn("Attempted to refresh status for unknown server: {}", serverId);
+        }
     }
 }
