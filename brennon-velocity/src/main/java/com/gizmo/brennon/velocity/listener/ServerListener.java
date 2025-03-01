@@ -2,9 +2,9 @@ package com.gizmo.brennon.velocity.listener;
 
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyPingEvent;
-import com.velocitypowered.api.event.server.ServerConnectEvent;
-import com.velocitypowered.api.event.server.ServerConnectedEvent;
-import com.velocitypowered.api.event.server.ServerDisconnectEvent;
+import com.velocitypowered.api.event.player.ServerPreConnectEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
+import com.velocitypowered.api.event.player.ServerDisconnectEvent;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.gizmo.brennon.velocity.BrennonVelocity;
 import net.kyori.adventure.text.Component;
@@ -16,7 +16,7 @@ import java.util.Optional;
  * Handles server-related events
  *
  * @author Gizmo0320
- * @since 2025-02-28 20:48:42
+ * @since 2025-03-01 03:05:15
  */
 public class ServerListener {
     private final BrennonVelocity plugin;
@@ -26,12 +26,12 @@ public class ServerListener {
     }
 
     @Subscribe
-    public void onServerConnect(ServerConnectEvent event) {
-        RegisteredServer target = event.getTarget();
+    public void onServerPreConnect(ServerPreConnectEvent event) {
+        RegisteredServer target = event.getServer();
 
         // Check if server exists
         if (!plugin.getProxyManager().getServer(target.getServerInfo().getName()).isPresent()) {
-            event.setResult(ServerConnectEvent.ServerResult.denied());
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
             event.getPlayer().sendMessage(Component.text("That server is currently unavailable!", NamedTextColor.RED));
             return;
         }
@@ -41,10 +41,10 @@ public class ServerListener {
             // Try to find alternative server
             Optional<RegisteredServer> alternative = plugin.getProxyManager().findBestServer(target.getServerInfo().getName());
             if (alternative.isPresent() && !alternative.get().equals(target)) {
-                event.setTarget(alternative.get());
+                event.setResult(ServerPreConnectEvent.ServerResult.allowed(alternative.get()));
                 event.getPlayer().sendMessage(Component.text("Redirecting to a less crowded server...", NamedTextColor.YELLOW));
             } else {
-                event.setResult(ServerConnectEvent.ServerResult.denied());
+                event.setResult(ServerPreConnectEvent.ServerResult.denied());
                 event.getPlayer().sendMessage(Component.text("That server is currently full!", NamedTextColor.RED));
             }
         }
