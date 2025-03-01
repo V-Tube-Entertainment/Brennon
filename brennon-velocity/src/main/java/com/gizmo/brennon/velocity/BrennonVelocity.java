@@ -1,5 +1,6 @@
 package com.gizmo.brennon.velocity;
 
+import com.gizmo.brennon.velocity.listener.PlayerListener;
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
@@ -60,6 +61,7 @@ public class BrennonVelocity {
         // Register listeners
         server.getEventManager().register(this, new ChatListener(this));
         server.getEventManager().register(this, new ConnectionListener(this));
+        server.getEventManager().register(this, new PlayerListener(this));
 
         logger.info("Brennon has been enabled!");
     }
