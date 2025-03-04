@@ -20,6 +20,8 @@ dependencies {
     // JSON/YAML
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.yaml:snakeyaml:2.0")
+    implementation("com.google.inject:guice:5.1.0")
+    implementation("javax.inject:javax.inject:1")
 
     // Make sure Redis client is included
     implementation("io.lettuce:lettuce-core:6.3.1.RELEASE") {

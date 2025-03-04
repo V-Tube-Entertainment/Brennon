@@ -1,6 +1,5 @@
 package com.gizmo.brennon.velocity;
 
-import com.gizmo.brennon.velocity.listener.PlayerListener;
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
@@ -16,9 +15,11 @@ import com.gizmo.brennon.velocity.manager.ProxyManager;
 import com.gizmo.brennon.velocity.player.PlayerManager;
 import com.gizmo.brennon.velocity.listener.ConnectionListener;
 import com.gizmo.brennon.velocity.listener.ChatListener;
+import com.gizmo.brennon.velocity.listener.PlayerListener;
 import com.gizmo.brennon.velocity.manager.BanManager;
 import org.slf4j.Logger;
 
+import javax.inject.Singleton;
 import java.nio.file.Path;
 import java.util.UUID;
 
@@ -30,11 +31,12 @@ import java.util.UUID;
         description = "A comprehensive proxy management plugin",
         authors = {"Gizmo0320"}
 )
+@Singleton
 public class BrennonVelocity {
+
     private final ProxyServer server;
     private final Logger logger;
     private final Path dataDirectory;
-
     private BrennonCore core;
     private ConfigManager configManager;
     private VelocityCommandManager commandManager;
