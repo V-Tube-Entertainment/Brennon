@@ -1,5 +1,6 @@
 package com.gizmo.brennon.velocity.command;
 
+import com.google.inject.Inject;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import com.gizmo.brennon.core.messaging.ChatMessage;
@@ -9,16 +10,19 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import com.google.gson.Gson;
 
+import javax.inject.Singleton;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
+@Singleton
 public class StaffChatCommand implements SimpleCommand {
     private final BrennonVelocity plugin;
     private final Set<UUID> toggledPlayers;
     private final Gson gson;
 
+    @Inject
     public StaffChatCommand(BrennonVelocity plugin) {
         this.plugin = plugin;
         this.toggledPlayers = new HashSet<>();

@@ -7,7 +7,11 @@ import com.gizmo.brennon.velocity.BrennonVelocity;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
+import com.google.inject.Inject;
 import org.slf4j.Logger;
+
+import javax.inject.Singleton;
 
 /**
  * Manages configuration loading and saving for the Velocity module
@@ -15,6 +19,8 @@ import org.slf4j.Logger;
  * @author Gizmo0320
  * @since 2025-03-01 05:01:52
  */
+
+@Singleton
 public class ConfigManager {
     private final BrennonVelocity plugin;
     private final Logger logger;
@@ -22,6 +28,7 @@ public class ConfigManager {
     private final Gson gson;
     private Config config;
 
+    @Inject
     public ConfigManager(BrennonVelocity plugin) {
         this.plugin = plugin;
         this.logger = plugin.getLogger();

@@ -7,6 +7,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.gizmo.brennon.velocity.BrennonVelocity;
 import com.gizmo.brennon.velocity.command.adapter.VelocityCommandAdapter;
 
+import javax.inject.Singleton;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,6 +19,8 @@ import java.util.Map;
  * @author Gizmo0320
  * @since 2025-03-04 02:10:30
  */
+
+@Singleton
 public class VelocityCommandManager {
     private final BrennonVelocity plugin;
     private final ProxyServer server;
