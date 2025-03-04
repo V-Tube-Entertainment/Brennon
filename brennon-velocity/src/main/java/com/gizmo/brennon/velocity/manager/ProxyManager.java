@@ -3,7 +3,6 @@ package com.gizmo.brennon.velocity.manager;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerInfo;
-import com.velocitypowered.api.scheduler.ScheduledTask;
 import com.gizmo.brennon.core.BrennonCore;
 import com.gizmo.brennon.core.server.ServerManager;
 import com.gizmo.brennon.core.server.ServerType;
@@ -13,18 +12,15 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
 import java.net.InetSocketAddress;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
- * Enhanced ProxyManager with advanced server management and monitoring capabilities
+ * Manages server registration and routing for the Velocity proxy.
  *
  * @author Gizmo0320
- * @since 2025-03-04 00:28:04
+ * @since 2025-03-04 01:04:38
  */
 public class ProxyManager {
     private final BrennonVelocity plugin;
@@ -32,44 +28,32 @@ public class ProxyManager {
     private final BrennonCore core;
     private final ServerManager serverManager;
     private final LoadBalancer loadBalancer;
-    private final Logger logger;
-
     private final Map<String, RegisteredServer> servers;
-    private final Map<String, ServerHealthStatus> serverHealth;
-    private ScheduledTask healthCheckTask;
-    private ScheduledTask balancingTask;
+    private final Map<String, ServerStatus> serverStatuses;
 
-    public static class ServerHealthStatus {
+    public static class ServerStatus {
         private boolean online;
-        private long lastResponseTime;
-        private int failedPings;
-        private double tps;
+        private long lastPing;
         private int playerCount;
-        private long lastUpdate;
+        private double tps;
+        private double memoryUsage;
+        private int failedPings;
 
-        public ServerHealthStatus() {
+        public ServerStatus() {
             this.online = false;
-            this.lastResponseTime = 0;
-            this.failedPings = 0;
-            this.tps = 20.0;
+            this.lastPing = System.currentTimeMillis();
             this.playerCount = 0;
-            this.lastUpdate = System.currentTimeMillis();
+            this.tps = 20.0;
+            this.memoryUsage = 0.0;
+            this.failedPings = 0;
         }
 
-        // Getters and setters
-        public boolean isOnline() { return online; }
-        public long getLastResponseTime() { return lastResponseTime; }
-        public int getFailedPings() { return failedPings; }
-        public double getTps() { return tps; }
-        public int getPlayerCount() { return playerCount; }
-        public long getLastUpdate() { return lastUpdate; }
-
-        public void updateStatus(boolean online, long responseTime, double tps, int playerCount) {
+        public void updateStatus(boolean online, int playerCount, double tps, double memoryUsage) {
             this.online = online;
-            this.lastResponseTime = responseTime;
-            this.tps = tps;
             this.playerCount = playerCount;
-            this.lastUpdate = System.currentTimeMillis();
+            this.tps = tps;
+            this.memoryUsage = memoryUsage;
+            this.lastPing = System.currentTimeMillis();
             if (online) {
                 this.failedPings = 0;
             }
@@ -81,6 +65,11 @@ public class ProxyManager {
                 this.online = false;
             }
         }
+
+        public boolean isOnline() { return online; }
+        public int getPlayerCount() { return playerCount; }
+        public double getTps() { return tps; }
+        public double getMemoryUsage() { return memoryUsage; }
     }
 
     public ProxyManager(BrennonVelocity plugin) {
@@ -89,164 +78,77 @@ public class ProxyManager {
         this.core = plugin.getCore();
         this.serverManager = core.getServerManager();
         this.loadBalancer = core.getLoadBalancer();
-        this.logger = plugin.getLogger();
         this.servers = new ConcurrentHashMap<>();
-        this.serverHealth = new ConcurrentHashMap<>();
+        this.serverStatuses = new ConcurrentHashMap<>();
 
-        initializeServers();
+        // Register existing servers
+        registerServers();
+
+        // Start server monitoring
         startMonitoring();
     }
 
-    private void initializeServers() {
-        try {
-            // Register existing servers from core
-            serverManager.getAllServers().forEach(server -> {
-                ServerInfo info = new ServerInfo(
-                        server.id(),
-                        new InetSocketAddress(server.host(), server.port())
-                );
-                RegisteredServer registeredServer = proxy.registerServer(info);
-                servers.put(server.id(), registeredServer);
-                serverHealth.put(server.id(), new ServerHealthStatus());
-
-                logger.info("Registered server: " + server.id() +
-                        " (" + server.host() + ":" + server.port() + ")");
-            });
-
-            logger.info("Successfully initialized " + servers.size() + " servers");
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to initialize servers", e);
-        }
-    }
-
-    private void startMonitoring() {
-        // Server health monitoring (every 30 seconds)
-        healthCheckTask = proxy.getScheduler()
-                .buildTask(plugin, this::performHealthCheck)
-                .delay(Duration.ZERO)
-                .repeat(Duration.ofSeconds(30))
-                .schedule();
-
-        // Load balancing check (every 5 minutes)
-        balancingTask = proxy.getScheduler()
-                .buildTask(plugin, this::performLoadBalancing)
-                .delay(Duration.ofMinutes(1))
-                .repeat(Duration.ofMinutes(5))
-                .schedule();
-    }
-
-    private void performHealthCheck() {
-        servers.forEach((id, server) -> {
-            long startTime = System.currentTimeMillis();
-            server.ping()
-                    .thenAccept(ping -> {
-                        long responseTime = System.currentTimeMillis() - startTime;
-                        ServerHealthStatus health = serverHealth.get(id);
-
-                        if (ping != null) {
-                            // Update server health status
-                            health.updateStatus(
-                                    true,
-                                    responseTime,
-                                    serverManager.getServer(id)
-                                            .map(s -> s.getTps())
-                                            .orElse(20.0),
-                                    ping.getPlayers()
-                                            .map(players -> players.getOnline())
-                                            .orElse(0)
-                            );
-
-                            // Update core server manager
-                            serverManager.updateServerStatus(id, true, health.getPlayerCount());
-                        } else {
-                            health.incrementFailedPings();
-                            if (!health.isOnline()) {
-                                serverManager.updateServerStatus(id, false, 0);
-                                logger.warning("Server " + id + " is offline (failed pings: " +
-                                        health.getFailedPings() + ")");
-                            }
-                        }
-                    })
-                    .exceptionally(throwable -> {
-                        ServerHealthStatus health = serverHealth.get(id);
-                        health.incrementFailedPings();
-                        if (!health.isOnline()) {
-                            serverManager.updateServerStatus(id, false, 0);
-                            logger.warning("Failed to ping server " + id + ": " + throwable.getMessage());
-                        }
-                        return null;
-                    });
+    private void registerServers() {
+        serverManager.getAllServers().forEach(server -> {
+            ServerInfo info = new ServerInfo(
+                    server.id(),
+                    new InetSocketAddress(server.host(), server.port())
+            );
+            RegisteredServer registeredServer = proxy.registerServer(info);
+            servers.put(server.id(), registeredServer);
+            serverStatuses.put(server.id(), new ServerStatus());
         });
     }
 
-    private void performLoadBalancing() {
-        try {
-            // Group servers by type
-            Map<String, List<RegisteredServer>> serversByType = new HashMap<>();
-            servers.forEach((id, server) -> {
-                serverManager.getServer(id).ifPresent(info -> {
-                    serversByType.computeIfAbsent(info.type(), k -> new ArrayList<>())
-                            .add(server);
-                });
+    private void startMonitoring() {
+        proxy.getScheduler()
+                .buildTask(plugin, this::checkServers)
+                .delay(5, TimeUnit.SECONDS)
+                .repeat(30, TimeUnit.SECONDS)
+                .schedule();
+    }
+
+    private void checkServers() {
+        for (Map.Entry<String, RegisteredServer> entry : servers.entrySet()) {
+            String serverId = entry.getKey();
+            RegisteredServer server = entry.getValue();
+            ServerStatus status = serverStatuses.computeIfAbsent(serverId, k -> new ServerStatus());
+
+            server.ping().thenAccept(ping -> {
+                if (ping != null) {
+                    status.updateStatus(
+                            true,
+                            ping.getPlayers().map(p -> p.getOnline()).orElse(0),
+                            serverManager.getServer(serverId).map(s -> s.getTps()).orElse(20.0),
+                            serverManager.getServer(serverId).map(s -> s.getMemoryUsage()).orElse(0.0)
+                    );
+                } else {
+                    status.incrementFailedPings();
+                }
+
+                updateServerStatus(serverId, status.isOnline(), status.getPlayerCount());
+            }).exceptionally(throwable -> {
+                status.incrementFailedPings();
+                updateServerStatus(serverId, false, 0);
+                return null;
             });
-
-            // Check balance for each server type
-            serversByType.forEach((type, typeServers) -> {
-                if (typeServers.size() <= 1) return;
-
-                // Calculate average load
-                double avgLoad = typeServers.stream()
-                        .mapToDouble(server -> loadBalancer.calculateServerLoad(
-                                server.getServerInfo().getName()))
-                        .average()
-                        .orElse(0.0);
-
-                // Find overloaded servers
-                typeServers.stream()
-                        .filter(server -> {
-                            double load = loadBalancer.calculateServerLoad(
-                                    server.getServerInfo().getName());
-                            return load > avgLoad * 1.25; // 25% over average
-                        })
-                        .forEach(overloadedServer -> {
-                            balanceServer(overloadedServer, typeServers, avgLoad);
-                        });
-            });
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "Error during load balancing", e);
         }
     }
 
-    private void balanceServer(RegisteredServer overloadedServer,
-                               List<RegisteredServer> availableServers,
-                               double averageLoad) {
-        // Find suitable target server
-        Optional<RegisteredServer> targetServer = availableServers.stream()
-                .filter(server -> server != overloadedServer)
-                .filter(server -> {
-                    double load = loadBalancer.calculateServerLoad(
-                            server.getServerInfo().getName());
-                    return load < averageLoad;
-                })
-                .min(Comparator.comparingDouble(server ->
-                        loadBalancer.calculateServerLoad(server.getServerInfo().getName())));
+    private void updateServerStatus(String serverId, boolean online, int playerCount) {
+        serverManager.updateServerStatus(serverId, online, playerCount);
 
-        if (targetServer.isPresent()) {
-            // Calculate how many players to move
-            int playersToMove = (int) Math.ceil(
-                    (overloadedServer.getPlayersConnected().size() -
-                            targetServer.get().getPlayersConnected().size()) / 2.0);
-
-            // Move players
-            overloadedServer.getPlayersConnected().stream()
-                    .limit(playersToMove)
-                    .forEach(player -> {
-                        player.createConnectionRequest(targetServer.get()).fireAndForget();
-                        player.sendMessage(Component.text()
-                                .append(Component.text("You are being moved to a less crowded server for better performance.",
-                                        NamedTextColor.YELLOW))
-                                .build());
-                    });
+        if (!online) {
+            // Notify staff about server status change
+            proxy.getAllPlayers().stream()
+                    .filter(p -> p.hasPermission("brennon.staff"))
+                    .forEach(p -> p.sendMessage(
+                            Component.text()
+                                    .append(Component.text("[Server] ", NamedTextColor.RED))
+                                    .append(Component.text(serverId, NamedTextColor.YELLOW))
+                                    .append(Component.text(" is now offline!", NamedTextColor.RED))
+                                    .build()
+                    ));
         }
     }
 
@@ -261,60 +163,74 @@ public class ProxyManager {
     }
 
     public void registerServer(String id, String host, int port, ServerType type, String groupId) {
-        try {
-            // Register with Velocity
-            ServerInfo info = new ServerInfo(id, new InetSocketAddress(host, port));
-            RegisteredServer server = proxy.registerServer(info);
-            servers.put(id, server);
-            serverHealth.put(id, new ServerHealthStatus());
+        // Register with Velocity
+        ServerInfo info = new ServerInfo(id, new InetSocketAddress(host, port));
+        RegisteredServer server = proxy.registerServer(info);
+        servers.put(id, server);
+        serverStatuses.put(id, new ServerStatus());
 
-            // Register with core server manager
-            serverManager.registerServer(
-                    id,
-                    id,
-                    type != null ? type.getIdentifier() : ServerType.MINECRAFT.getIdentifier(),
-                    groupId != null ? groupId : "default",
-                    host,
-                    port,
-                    false
-            );
+        // Register with core server manager
+        serverManager.registerServer(
+                id,                  // Server ID
+                id,                  // Server name (using ID for now)
+                type != null ? type.getIdentifier() : ServerType.MINECRAFT.getIdentifier(),
+                groupId != null ? groupId : "default",
+                host,
+                port,
+                false
+        );
 
-            logger.info("Successfully registered server: " + id);
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to register server: " + id, e);
-            throw e;
-        }
+        // Notify staff about new server
+        proxy.getAllPlayers().stream()
+                .filter(p -> p.hasPermission("brennon.staff"))
+                .forEach(p -> p.sendMessage(
+                        Component.text()
+                                .append(Component.text("[Server] ", NamedTextColor.GREEN))
+                                .append(Component.text(id, NamedTextColor.YELLOW))
+                                .append(Component.text(" has been registered!", NamedTextColor.GREEN))
+                                .build()
+                ));
+    }
+
+    public void registerServer(String id, String host, int port) {
+        registerServer(id, host, port, ServerType.MINECRAFT, "default");
     }
 
     public void unregisterServer(String id) {
-        try {
-            servers.remove(id);
-            serverHealth.remove(id);
-            proxy.unregisterServer(
-                    new ServerInfo(id, new InetSocketAddress("localhost", 0))
-            );
-            serverManager.unregisterServer(id);
-            logger.info("Successfully unregistered server: " + id);
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Failed to unregister server: " + id, e);
-            throw e;
-        }
-    }
+        servers.remove(id);
+        serverStatuses.remove(id);
+        proxy.unregisterServer(
+                new ServerInfo(id, new InetSocketAddress("localhost", 0))
+        );
+        serverManager.unregisterServer(id);
 
-    public Map<String, ServerHealthStatus> getServerHealth() {
-        return Collections.unmodifiableMap(serverHealth);
+        // Notify staff about server removal
+        proxy.getAllPlayers().stream()
+                .filter(p -> p.hasPermission("brennon.staff"))
+                .forEach(p -> p.sendMessage(
+                        Component.text()
+                                .append(Component.text("[Server] ", NamedTextColor.RED))
+                                .append(Component.text(id, NamedTextColor.YELLOW))
+                                .append(Component.text(" has been unregistered!", NamedTextColor.RED))
+                                .build()
+                ));
     }
 
     public Map<String, RegisteredServer> getServers() {
         return Collections.unmodifiableMap(servers);
     }
 
-    public void shutdown() {
-        if (healthCheckTask != null) {
-            healthCheckTask.cancel();
-        }
-        if (balancingTask != null) {
-            balancingTask.cancel();
-        }
+    public Map<String, ServerStatus> getServerStatuses() {
+        return Collections.unmodifiableMap(serverStatuses);
+    }
+
+    public Optional<ServerStatus> getServerStatus(String serverId) {
+        return Optional.ofNullable(serverStatuses.get(serverId));
+    }
+
+    public boolean isServerOnline(String serverId) {
+        return getServerStatus(serverId)
+                .map(ServerStatus::isOnline)
+                .orElse(false);
     }
 }
