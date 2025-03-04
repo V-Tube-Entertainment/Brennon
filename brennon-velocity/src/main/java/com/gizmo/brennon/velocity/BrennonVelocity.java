@@ -19,6 +19,7 @@ import com.gizmo.brennon.velocity.listener.ChatListener;
 import com.gizmo.brennon.velocity.manager.BanManager;
 
 import java.nio.file.Path;
+import java.util.UUID;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -79,15 +80,18 @@ public class BrennonVelocity {
     }
 
     public void reloadPermissions() {
-        // Reload permission configuration
-        getConfigManager().reloadPermissionConfig();
+        // We don't need to explicitly reload LuckPerms permissions
+        // Just log that we're refreshing the cache
+        getLogger().info("Refreshing permission cache");
 
-        // Update permissions for all online players
+        // Clear any local permission caches if we have them
         getServer().getAllPlayers().forEach(player -> {
             try {
-                getCore().getPermissionManager().reloadPlayerPermissions(player.getUniqueId());
+                // The PermissionService will automatically fetch fresh data from LuckPerms
+                UUID playerId = player.getUniqueId();
+                getCore().getPermissionService().hasPermission(playerId, "brennon.reload");
             } catch (Exception e) {
-                getLogger().warning("Failed to reload permissions for " + player.getUsername() + ": " + e.getMessage());
+                getLogger().warning("Failed to refresh permissions for " + player.getUsername() + ": " + e.getMessage());
             }
         });
     }

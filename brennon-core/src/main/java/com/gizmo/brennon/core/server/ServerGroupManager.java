@@ -99,4 +99,16 @@ public class ServerGroupManager implements Service {
     public Collection<ServerGroup> getAllGroups() {
         return Collections.unmodifiableCollection(groups.values());
     }
+
+    public void reloadGroups() {
+        logger.info("Reloading server groups...");
+        groups.clear();
+        try {
+            loadGroups();
+            logger.info("Server groups reloaded successfully");
+        } catch (Exception e) {
+            logger.error("Failed to reload server groups", e);
+            throw new RuntimeException("Failed to reload server groups", e);
+        }
+    }
 }

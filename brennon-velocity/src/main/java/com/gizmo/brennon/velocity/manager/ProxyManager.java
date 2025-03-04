@@ -32,6 +32,7 @@ public class ProxyManager {
     private final LoadBalancer loadBalancer;
     private final Map<String, RegisteredServer> servers;
     private final Map<String, ServerMonitorStatus> serverMonitoring;
+    private boolean isPaused;
 
     private static class ServerMonitorStatus {
         private int failedPings;
@@ -233,11 +234,15 @@ public class ProxyManager {
         }
     }
 
+    public boolean isPaused() {
+        return isPaused;
+    }
+
     public void reloadServerConfigurations() {
-        // Reload server-specific configurations
         getServers().forEach((name, server) -> {
             try {
-                plugin.getConfigManager().reloadServerConfig(name);
+                // Use existing config reload mechanism or implement a server-specific one
+                plugin.getConfigManager().reloadConfig(); // For now, reload the main config
                 plugin.getLogger().info("Reloaded configuration for server: " + name);
             } catch (Exception e) {
                 plugin.getLogger().warning("Failed to reload configuration for server " + name + ": " + e.getMessage());

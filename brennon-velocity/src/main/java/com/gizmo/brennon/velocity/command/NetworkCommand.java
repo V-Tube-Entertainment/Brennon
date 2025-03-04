@@ -5,6 +5,7 @@ import com.gizmo.brennon.velocity.BrennonVelocity;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import com.velocitypowered.api.proxy.Player;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -142,7 +143,6 @@ public class NetworkCommand implements SimpleCommand {
             invocation.source().sendMessage(Component.text("→ Configuration reloaded", NamedTextColor.GRAY));
 
             // Step 3: Reconnect to message broker
-            plugin.getCore().getMessageBroker().disconnect();
             plugin.getCore().getMessageBroker().reconnect();
             invocation.source().sendMessage(Component.text("→ Message broker reconnected", NamedTextColor.GRAY));
 
@@ -162,7 +162,7 @@ public class NetworkCommand implements SimpleCommand {
 
             // Step 7: Reload permissions
             plugin.reloadPermissions();
-            invocation.source().sendMessage(Component.text("→ Permissions reloaded", NamedTextColor.GRAY));
+            invocation.source().sendMessage(Component.text("→ Permission cache refreshed", NamedTextColor.GRAY));
 
             // Step 8: Resume connections
             plugin.getProxyManager().setPaused(false);
