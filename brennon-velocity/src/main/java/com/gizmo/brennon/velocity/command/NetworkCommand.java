@@ -133,21 +133,73 @@ public class NetworkCommand implements SimpleCommand {
         invocation.source().sendMessage(Component.text("Reloading network configuration...", NamedTextColor.YELLOW));
 
         try {
-            // Reload configuration
+            // Step 1: Pause incoming connections
+            plugin.getProxyManager().setPaused(true);
+            invocation.source().sendMessage(Component.text("→ Paused incoming connections", NamedTextColor.GRAY));
+
+            // Step 2: Reload configuration
             plugin.getConfigManager().reloadConfig();
+            invocation.source().sendMessage(Component.text("→ Configuration reloaded", NamedTextColor.GRAY));
 
-            // Reconnect to message broker
+            // Step 3: Reconnect to message broker
+            plugin.getCore().getMessageBroker().disconnect();
             plugin.getCore().getMessageBroker().reconnect();
+            invocation.source().sendMessage(Component.text("→ Message broker reconnected", NamedTextColor.GRAY));
 
-            // Refresh server statuses
-            plugin.getProxyManager().getServers().forEach((name, server) ->
-                    plugin.getCore().getServerManager().refreshServerStatus(name));
+            // Step 4: Refresh server configurations
+            plugin.getProxyManager().reloadServerConfigurations();
+            invocation.source().sendMessage(Component.text("→ Server configurations updated", NamedTextColor.GRAY));
 
-            invocation.source().sendMessage(Component.text("Network configuration reloaded successfully!", NamedTextColor.GREEN));
+            // Step 5: Refresh server statuses
+            plugin.getProxyManager().getServers().forEach((name, server) -> {
+                plugin.getCore().getServerManager().refreshServerStatus(name);
+                invocation.source().sendMessage(Component.text("→ Refreshed status for server: " + name, NamedTextColor.GRAY));
+            });
+
+            // Step 6: Update server groups
+            plugin.getCore().getServerGroupManager().reloadGroups();
+            invocation.source().sendMessage(Component.text("→ Server groups updated", NamedTextColor.GRAY));
+
+            // Step 7: Reload permissions
+            plugin.reloadPermissions();
+            invocation.source().sendMessage(Component.text("→ Permissions reloaded", NamedTextColor.GRAY));
+
+            // Step 8: Resume connections
+            plugin.getProxyManager().setPaused(false);
+            invocation.source().sendMessage(Component.text("→ Resumed incoming connections", NamedTextColor.GRAY));
+
+            // Final success message
+            invocation.source().sendMessage(Component.text()
+                    .append(Component.text("Network configuration reloaded successfully!", NamedTextColor.GREEN))
+                    .append(Component.newline())
+                    .append(Component.text("All services are operational.", NamedTextColor.GRAY))
+                    .build());
+
+            // Log the reload
+            plugin.getLogger().info("Network configuration reloaded by " +
+                    (invocation.source() instanceof Player ?
+                            ((Player) invocation.source()).getUsername() : "CONSOLE"));
+
         } catch (Exception e) {
-            invocation.source().sendMessage(Component.text("Failed to reload network configuration: " + e.getMessage(), NamedTextColor.RED));
+            // Handle failure
+            invocation.source().sendMessage(Component.text()
+                    .append(Component.text("Failed to reload network configuration!", NamedTextColor.RED))
+                    .append(Component.newline())
+                    .append(Component.text("Error: " + e.getMessage(), NamedTextColor.GRAY))
+                    .build());
+
             plugin.getLogger().severe("Failed to reload network configuration: " + e.getMessage());
             e.printStackTrace();
+
+            try {
+                // Attempt recovery
+                plugin.getProxyManager().setPaused(false);
+                plugin.getCore().getMessageBroker().reconnect();
+                invocation.source().sendMessage(Component.text("Attempted recovery of network services.", NamedTextColor.YELLOW));
+            } catch (Exception recovery) {
+                invocation.source().sendMessage(Component.text("Recovery failed! Manual intervention may be required.", NamedTextColor.RED));
+                plugin.getLogger().severe("Recovery failed after reload attempt: " + recovery.getMessage());
+            }
         }
     }
 

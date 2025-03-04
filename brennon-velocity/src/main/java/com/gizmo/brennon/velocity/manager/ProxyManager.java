@@ -224,6 +224,27 @@ public class ProxyManager {
                 ));
     }
 
+    public void setPaused(boolean paused) {
+        this.isPaused = paused;
+        if (paused) {
+            plugin.getLogger().info("Proxy connections paused");
+        } else {
+            plugin.getLogger().info("Proxy connections resumed");
+        }
+    }
+
+    public void reloadServerConfigurations() {
+        // Reload server-specific configurations
+        getServers().forEach((name, server) -> {
+            try {
+                plugin.getConfigManager().reloadServerConfig(name);
+                plugin.getLogger().info("Reloaded configuration for server: " + name);
+            } catch (Exception e) {
+                plugin.getLogger().warning("Failed to reload configuration for server " + name + ": " + e.getMessage());
+            }
+        });
+    }
+
     public Map<String, RegisteredServer> getServers() {
         return Collections.unmodifiableMap(servers);
     }

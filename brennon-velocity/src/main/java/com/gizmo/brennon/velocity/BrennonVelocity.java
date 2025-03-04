@@ -78,6 +78,20 @@ public class BrennonVelocity {
         logger.info("Brennon has been disabled!");
     }
 
+    public void reloadPermissions() {
+        // Reload permission configuration
+        getConfigManager().reloadPermissionConfig();
+
+        // Update permissions for all online players
+        getServer().getAllPlayers().forEach(player -> {
+            try {
+                getCore().getPermissionManager().reloadPlayerPermissions(player.getUniqueId());
+            } catch (Exception e) {
+                getLogger().warning("Failed to reload permissions for " + player.getUsername() + ": " + e.getMessage());
+            }
+        });
+    }
+
     // Getters for all managers
     public ProxyServer getServer() { return server; }
     public Logger getLogger() { return logger; }
