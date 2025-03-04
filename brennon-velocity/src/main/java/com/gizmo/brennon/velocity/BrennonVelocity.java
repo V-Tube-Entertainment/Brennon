@@ -1,5 +1,6 @@
 package com.gizmo.brennon.velocity;
 
+import com.gizmo.brennon.velocity.listener.PlayerListener;
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
@@ -15,13 +16,11 @@ import com.gizmo.brennon.velocity.manager.ProxyManager;
 import com.gizmo.brennon.velocity.player.PlayerManager;
 import com.gizmo.brennon.velocity.listener.ConnectionListener;
 import com.gizmo.brennon.velocity.listener.ChatListener;
-import com.gizmo.brennon.velocity.listener.PlayerListener;
 import com.gizmo.brennon.velocity.manager.BanManager;
+import org.slf4j.Logger;
 
 import java.nio.file.Path;
 import java.util.UUID;
-import java.util.logging.Logger;
-import java.util.concurrent.CompletableFuture;
 
 @Plugin(
         id = "brennon",
@@ -31,7 +30,7 @@ import java.util.concurrent.CompletableFuture;
         description = "A comprehensive proxy management plugin",
         authors = {"Gizmo0320"}
 )
-public class BrennonVelocity {
+public final class BrennonVelocity {
     private final ProxyServer server;
     private final Logger logger;
     private final Path dataDirectory;
@@ -45,14 +44,14 @@ public class BrennonVelocity {
     private BanManager banManager;
 
     @Inject
-    public BrennonVelocity(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
+    public BrennonVelocity(final ProxyServer server, final Logger logger, @DataDirectory final Path dataDirectory) {
         this.server = server;
         this.logger = logger;
         this.dataDirectory = dataDirectory;
     }
 
     @Subscribe
-    public void onProxyInitialize(ProxyInitializeEvent event) {
+    public void onProxyInitialize(final ProxyInitializeEvent event) {
         try {
             // Initialize core first
             this.core = new BrennonCore(dataDirectory);
@@ -75,55 +74,34 @@ public class BrennonVelocity {
 
             logger.info("Brennon has been enabled!");
         } catch (Exception e) {
-            logger.severe("Failed to initialize Brennon: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Failed to initialize Brennon: " + e.getMessage(), e);
         }
     }
 
     @Subscribe
-    public void onProxyShutdown(ProxyShutdownEvent event) {
+    public void onProxyShutdown(final ProxyShutdownEvent event) {
         if (core != null) {
             try {
                 logger.info("Shutting down Brennon Core...");
                 core.stop().get();
             } catch (Exception e) {
-                logger.severe("Error shutting down BrennonCore: " + e.getMessage());
+                logger.error("Error shutting down BrennonCore: " + e.getMessage(), e);
             }
         }
         logger.info("Brennon has been disabled!");
     }
 
-    /**
-     * Reloads permissions for all online players.
-     * This method is called when permissions need to be refreshed,
-     * such as after a permission change or when requested via command.
-     */
     public void reloadPermissions() {
-        if (core == null || !core.isStarted()) {
-            logger.warning("Cannot reload permissions - core is not initialized");
-            return;
-        }
+        logger.info("Refreshing permission cache");
 
-        logger.info("Refreshing permission cache for all online players...");
-
-        CompletableFuture.runAsync(() -> {
+        getServer().getAllPlayers().forEach(player -> {
             try {
-                // Clear any local permission caches
-                server.getAllPlayers().forEach(player -> {
-                    try {
-                        UUID playerId = player.getUniqueId();
-                        // Force a permissions refresh through the core's permission service
-                        core.getPermissionService().clearCache(playerId);
-                        core.getPermissionService().hasPermission(playerId, "brennon.reload");
-                        logger.info("Refreshed permissions for " + player.getUsername());
-                    } catch (Exception e) {
-                        logger.warning("Failed to refresh permissions for " + player.getUsername() + ": " + e.getMessage());
-                    }
-                });
-
-                logger.info("Permission cache refresh completed");
+                UUID playerId = player.getUniqueId();
+                getCore().getPermissionService().clearCache(playerId);
+                getCore().getPermissionService().hasPermission(playerId, "brennon.reload");
+                logger.info("Successfully refreshed permissions for {}", player.getUsername());
             } catch (Exception e) {
-                logger.severe("Error during permission refresh: " + e.getMessage());
+                logger.warn("Failed to refresh permissions for {}: {}", player.getUsername(), e.getMessage());
             }
         });
     }

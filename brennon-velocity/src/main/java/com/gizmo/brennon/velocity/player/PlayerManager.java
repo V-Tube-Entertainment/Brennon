@@ -13,7 +13,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
 
 /**
  * Manages player data and caching

@@ -7,7 +7,7 @@ import com.gizmo.brennon.velocity.BrennonVelocity;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
 
 /**
  * Manages configuration loading and saving for the Velocity module
