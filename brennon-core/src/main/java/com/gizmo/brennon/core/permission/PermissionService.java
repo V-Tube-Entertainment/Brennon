@@ -1,5 +1,7 @@
 package com.gizmo.brennon.core.permission;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.inject.Inject;
 import com.gizmo.brennon.core.service.Service;
 import net.luckperms.api.LuckPerms;
@@ -10,14 +12,21 @@ import org.slf4j.Logger;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class PermissionService implements Service {
     private final Logger logger;
     private LuckPerms luckPerms;
 
+    private final Cache<String, Object> permissionCache;
+
     @Inject
     public PermissionService(Logger logger) {
         this.logger = logger;
+        this.permissionCache = Caffeine.newBuilder()
+                .expireAfterWrite(5, TimeUnit.MINUTES)
+                .maximumSize(1000)
+                .build();
     }
 
     @Override
@@ -33,7 +42,27 @@ public class PermissionService implements Service {
 
     @Override
     public void disable() throws Exception {
+        clearAllCache();
         this.luckPerms = null;
+    }
+
+    /**
+     * Clears the permission cache for a specific player
+     * @param playerId The UUID of the player whose cache should be cleared
+     */
+    public void clearCache(UUID playerId) {
+        if (playerId == null) return;
+        String playerKey = playerId.toString();
+        permissionCache.asMap().keySet().removeIf(key -> key.startsWith(playerKey));
+        logger.debug("Cleared permission cache for player: {}", playerId);
+    }
+
+    /**
+     * Clears the entire permission cache
+     */
+    public void clearAllCache() {
+        permissionCache.invalidateAll();
+        logger.debug("Cleared all permission caches");
     }
 
     /**
@@ -44,10 +73,12 @@ public class PermissionService implements Service {
      * @return true if the player has the permission
      */
     public boolean hasPermission(UUID playerId, String permission) {
-        User user = luckPerms.getUserManager().getUser(playerId);
-        if (user == null) return false;
-
-        return user.getCachedData().getPermissionData().checkPermission(permission).asBoolean();
+        String cacheKey = playerId + ":perm:" + permission;
+        return (Boolean) permissionCache.get(cacheKey, k -> {
+            User user = luckPerms.getUserManager().getUser(playerId);
+            if (user == null) return false;
+            return user.getCachedData().getPermissionData().checkPermission(permission).asBoolean();
+        });
     }
 
     /**
@@ -57,10 +88,11 @@ public class PermissionService implements Service {
      * @return The name of the player's primary group
      */
     public String getPrimaryGroup(UUID playerId) {
-        User user = luckPerms.getUserManager().getUser(playerId);
-        if (user == null) return "default";
-
-        return user.getPrimaryGroup();
+        String cacheKey = playerId + ":primarygroup";
+        return (String) permissionCache.get(cacheKey, k -> {
+            User user = luckPerms.getUserManager().getUser(playerId);
+            return user != null ? user.getPrimaryGroup() : "default";
+        });
     }
 
     /**
@@ -70,14 +102,15 @@ public class PermissionService implements Service {
      * @return The display name of the player's primary group
      */
     public String getGroupDisplayName(UUID playerId) {
-        User user = luckPerms.getUserManager().getUser(playerId);
-        if (user == null) return "Default";
+        String cacheKey = playerId + ":groupdisplay";
+        return (String) permissionCache.get(cacheKey, k -> {
+            User user = luckPerms.getUserManager().getUser(playerId);
+            if (user == null) return "Default";
 
-        String groupName = user.getPrimaryGroup();
-        var group = luckPerms.getGroupManager().getGroup(groupName);
-        if (group == null) return "Default";
-
-        return group.getFriendlyName();
+            String groupName = user.getPrimaryGroup();
+            var group = luckPerms.getGroupManager().getGroup(groupName);
+            return group != null ? group.getFriendlyName() : "Default";
+        });
     }
 
     /**
@@ -87,11 +120,13 @@ public class PermissionService implements Service {
      * @return The player's prefix
      */
     public String getPrefix(UUID playerId) {
-        User user = luckPerms.getUserManager().getUser(playerId);
-        if (user == null) return "";
-
-        String prefix = user.getCachedData().getMetaData().getPrefix();
-        return prefix != null ? prefix : "";
+        String cacheKey = playerId + ":prefix";
+        return (String) permissionCache.get(cacheKey, k -> {
+            User user = luckPerms.getUserManager().getUser(playerId);
+            if (user == null) return "";
+            String prefix = user.getCachedData().getMetaData().getPrefix();
+            return prefix != null ? prefix : "";
+        });
     }
 
     /**
@@ -101,11 +136,13 @@ public class PermissionService implements Service {
      * @return The player's suffix
      */
     public String getSuffix(UUID playerId) {
-        User user = luckPerms.getUserManager().getUser(playerId);
-        if (user == null) return "";
-
-        String suffix = user.getCachedData().getMetaData().getSuffix();
-        return suffix != null ? suffix : "";
+        String cacheKey = playerId + ":suffix";
+        return (String) permissionCache.get(cacheKey, k -> {
+            User user = luckPerms.getUserManager().getUser(playerId);
+            if (user == null) return "";
+            String suffix = user.getCachedData().getMetaData().getSuffix();
+            return suffix != null ? suffix : "";
+        });
     }
 
     /**
@@ -116,11 +153,47 @@ public class PermissionService implements Service {
      * @return The meta value
      */
     public String getMeta(UUID playerId, String key) {
-        User user = luckPerms.getUserManager().getUser(playerId);
-        if (user == null) return "";
+        String cacheKey = playerId + ":meta:" + key;
+        return (String) permissionCache.get(cacheKey, k -> {
+            User user = luckPerms.getUserManager().getUser(playerId);
+            if (user == null) return "";
+            String value = user.getCachedData().getMetaData().getMetaValue(key);
+            return value != null ? value : "";
+        });
+    }
 
-        String value = user.getCachedData().getMetaData().getMetaValue(key);
-        return value != null ? value : "";
+    /**
+     * Gets the weight of a player's primary group
+     *
+     * @param playerId The UUID of the player
+     * @return The group weight, or 0 if not found
+     */
+    public int getGroupWeight(UUID playerId) {
+        String cacheKey = playerId + ":weight";
+        return (Integer) permissionCache.get(cacheKey, k -> {
+            User user = luckPerms.getUserManager().getUser(playerId);
+            if (user == null) return 0;
+            var group = luckPerms.getGroupManager().getGroup(user.getPrimaryGroup());
+            return group != null ? group.getWeight().orElse(0) : 0;
+        });
+    }
+
+    /**
+     * Checks if a player is in a specific group
+     *
+     * @param playerId The UUID of the player
+     * @param groupName The name of the group
+     * @return true if the player is in the group
+     */
+    public boolean isInGroup(UUID playerId, String groupName) {
+        String cacheKey = playerId + ":ingroup:" + groupName;
+        return (Boolean) permissionCache.get(cacheKey, k -> {
+            User user = luckPerms.getUserManager().getUser(playerId);
+            if (user == null) return false;
+            return user.getInheritedGroups(QueryOptions.defaultContextualOptions())
+                    .stream()
+                    .anyMatch(group -> group.getName().equalsIgnoreCase(groupName));
+        });
     }
 
     /**
@@ -134,32 +207,11 @@ public class PermissionService implements Service {
     }
 
     /**
-     * Gets the weight of a player's primary group
+     * Gets the LuckPerms API instance
      *
-     * @param playerId The UUID of the player
-     * @return The group weight, or 0 if not found
+     * @return The LuckPerms API instance
      */
-    public int getGroupWeight(UUID playerId) {
-        User user = luckPerms.getUserManager().getUser(playerId);
-        if (user == null) return 0;
-
-        var group = luckPerms.getGroupManager().getGroup(user.getPrimaryGroup());
-        return group != null ? group.getWeight().orElse(0) : 0;
-    }
-
-    /**
-     * Checks if a player is in a specific group
-     *
-     * @param playerId The UUID of the player
-     * @param groupName The name of the group
-     * @return true if the player is in the group
-     */
-    public boolean isInGroup(UUID playerId, String groupName) {
-        User user = luckPerms.getUserManager().getUser(playerId);
-        if (user == null) return false;
-
-        return user.getInheritedGroups(QueryOptions.defaultContextualOptions())
-                .stream()
-                .anyMatch(group -> group.getName().equalsIgnoreCase(groupName));
+    public LuckPerms getLuckPerms() {
+        return luckPerms;
     }
 }

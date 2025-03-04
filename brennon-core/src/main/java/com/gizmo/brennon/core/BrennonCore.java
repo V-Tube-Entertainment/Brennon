@@ -35,6 +35,7 @@ public class BrennonCore {
     private final List<Service> services;
     private final ExecutorService executorService;
     private Injector injector;
+    private boolean started = false;
 
     // Core services
     private ConfigurationManager configManager;
@@ -80,6 +81,8 @@ public class BrennonCore {
                 // Enable all services in order
                 enableServices();
 
+                started = true; // Set started to true after successful initialization
+
                 long endTime = System.currentTimeMillis();
                 logger.info("Brennon Core started successfully! ({}ms)", endTime - startTime);
             } catch (Exception e) {
@@ -101,6 +104,8 @@ public class BrennonCore {
                 // Shutdown executor
                 executorService.shutdown();
 
+                started = false; // Set started to false after shutdown
+
                 long endTime = System.currentTimeMillis();
                 logger.info("Brennon Core stopped successfully! ({}ms)", endTime - startTime);
             } catch (Exception e) {
@@ -108,6 +113,14 @@ public class BrennonCore {
                 throw new RuntimeException("Failed to stop Brennon Core", e);
             }
         }, executorService);
+    }
+
+    /**
+     * Checks if the core has been successfully started.
+     * @return true if the core has been started and services are initialized
+     */
+    public boolean isStarted() {
+        return started;
     }
 
     private void initializeCoreServices() {

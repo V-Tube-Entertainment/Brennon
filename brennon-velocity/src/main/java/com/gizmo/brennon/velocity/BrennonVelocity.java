@@ -1,6 +1,5 @@
 package com.gizmo.brennon.velocity;
 
-import com.gizmo.brennon.velocity.listener.PlayerListener;
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
@@ -16,18 +15,21 @@ import com.gizmo.brennon.velocity.manager.ProxyManager;
 import com.gizmo.brennon.velocity.player.PlayerManager;
 import com.gizmo.brennon.velocity.listener.ConnectionListener;
 import com.gizmo.brennon.velocity.listener.ChatListener;
+import com.gizmo.brennon.velocity.listener.PlayerListener;
 import com.gizmo.brennon.velocity.manager.BanManager;
 
 import java.nio.file.Path;
 import java.util.UUID;
 import java.util.logging.Logger;
+import java.util.concurrent.CompletableFuture;
 
 @Plugin(
         id = "brennon",
         name = "Brennon",
         version = "1.0-SNAPSHOT",
-        authors = {"Gizmo0320"},
-        dependencies = {}
+        url = "https://github.com/V-Tube-Entertainment/Brennon",
+        description = "A comprehensive proxy management plugin",
+        authors = {"Gizmo0320"}
 )
 public class BrennonVelocity {
     private final ProxyServer server;
@@ -51,52 +53,82 @@ public class BrennonVelocity {
 
     @Subscribe
     public void onProxyInitialize(ProxyInitializeEvent event) {
-        // Initialize core first
-        this.core = new BrennonCore(dataDirectory);
+        try {
+            // Initialize core first
+            this.core = new BrennonCore(dataDirectory);
 
-        // Initialize managers
-        this.configManager = new ConfigManager(this);
-        this.commandManager = new VelocityCommandManager(this);
-        this.staffChatManager = new StaffChatManager(this);
-        this.playerManager = new PlayerManager(this);
-        this.proxyManager = new ProxyManager(this);
-        this.banManager = new BanManager(this);
+            // Start core and wait for completion
+            this.core.start().get();
 
-        // Register listeners
-        server.getEventManager().register(this, new ChatListener(this));
-        server.getEventManager().register(this, new ConnectionListener(this));
-        server.getEventManager().register(this, new PlayerListener(this));
+            // Initialize managers
+            this.configManager = new ConfigManager(this);
+            this.commandManager = new VelocityCommandManager(this);
+            this.staffChatManager = new StaffChatManager(this);
+            this.playerManager = new PlayerManager(this);
+            this.proxyManager = new ProxyManager(this);
+            this.banManager = new BanManager(this);
 
-        logger.info("Brennon has been enabled!");
+            // Register listeners
+            server.getEventManager().register(this, new ChatListener(this));
+            server.getEventManager().register(this, new ConnectionListener(this));
+            server.getEventManager().register(this, new PlayerListener(this));
+
+            logger.info("Brennon has been enabled!");
+        } catch (Exception e) {
+            logger.severe("Failed to initialize Brennon: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
         if (core != null) {
-            // If BrennonCore needs cleanup, do it here
-            logger.info("Shutting down Brennon Core...");
+            try {
+                logger.info("Shutting down Brennon Core...");
+                core.stop().get();
+            } catch (Exception e) {
+                logger.severe("Error shutting down BrennonCore: " + e.getMessage());
+            }
         }
         logger.info("Brennon has been disabled!");
     }
 
+    /**
+     * Reloads permissions for all online players.
+     * This method is called when permissions need to be refreshed,
+     * such as after a permission change or when requested via command.
+     */
     public void reloadPermissions() {
-        // We don't need to explicitly reload LuckPerms permissions
-        // Just log that we're refreshing the cache
-        getLogger().info("Refreshing permission cache");
+        if (core == null || !core.isStarted()) {
+            logger.warning("Cannot reload permissions - core is not initialized");
+            return;
+        }
 
-        // Clear any local permission caches if we have them
-        getServer().getAllPlayers().forEach(player -> {
+        logger.info("Refreshing permission cache for all online players...");
+
+        CompletableFuture.runAsync(() -> {
             try {
-                // The PermissionService will automatically fetch fresh data from LuckPerms
-                UUID playerId = player.getUniqueId();
-                getCore().getPermissionService().hasPermission(playerId, "brennon.reload");
+                // Clear any local permission caches
+                server.getAllPlayers().forEach(player -> {
+                    try {
+                        UUID playerId = player.getUniqueId();
+                        // Force a permissions refresh through the core's permission service
+                        core.getPermissionService().clearCache(playerId);
+                        core.getPermissionService().hasPermission(playerId, "brennon.reload");
+                        logger.info("Refreshed permissions for " + player.getUsername());
+                    } catch (Exception e) {
+                        logger.warning("Failed to refresh permissions for " + player.getUsername() + ": " + e.getMessage());
+                    }
+                });
+
+                logger.info("Permission cache refresh completed");
             } catch (Exception e) {
-                getLogger().warning("Failed to refresh permissions for " + player.getUsername() + ": " + e.getMessage());
+                logger.severe("Error during permission refresh: " + e.getMessage());
             }
         });
     }
 
-    // Getters for all managers
+    // Getters
     public ProxyServer getServer() { return server; }
     public Logger getLogger() { return logger; }
     public Path getDataDirectory() { return dataDirectory; }
