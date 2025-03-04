@@ -6,6 +6,7 @@ import com.google.gson.Gson;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 public abstract class AbstractChatManager implements ChatSystem {
     protected final Map<String, ChatChannel> channels;
@@ -44,11 +45,6 @@ public abstract class AbstractChatManager implements ChatSystem {
         });
     }
 
-    @Override
-    public void registerChannel(ChatChannel channel) {
-        channels.put(channel.getId().toLowerCase(), channel);
-    }
-
     protected void registerDefaultChannels() {
         registerChannel(new ChatChannel(
                 "global",
@@ -82,6 +78,11 @@ public abstract class AbstractChatManager implements ChatSystem {
     }
 
     @Override
+    public void registerChannel(ChatChannel channel) {
+        channels.put(channel.getId().toLowerCase(), channel);
+    }
+
+    @Override
     public Collection<ChatChannel> getChannels() {
         return Collections.unmodifiableCollection(channels.values());
     }
@@ -94,6 +95,68 @@ public abstract class AbstractChatManager implements ChatSystem {
     @Override
     public Optional<UUID> getLastMessageSender(UUID playerId) {
         return Optional.ofNullable(lastMessageSender.get(playerId));
+    }
+
+    /**
+     * Create a new channel builder
+     * @param id The unique identifier for the channel
+     * @return A new ChatChannelBuilder instance
+     */
+    public ChatChannelBuilder createChannel(String id) {
+        return new ChatChannelBuilder(id);
+    }
+
+    /**
+     * Register a custom channel using a builder
+     * Example usage:
+     * chatManager.registerCustomChannel("trade", channel -> channel
+     *     .name("Trade")
+     *     .color("&6")
+     *     .prefix("[Trade]")
+     *     .crossServer(true)
+     * );
+     *
+     * @param id The unique identifier for the channel
+     * @param builderFunction A function that configures the channel
+     * @return The created and registered ChatChannel
+     */
+    public ChatChannel registerCustomChannel(String id, Consumer<ChatChannelBuilder> builderFunction) {
+        ChatChannelBuilder builder = new ChatChannelBuilder(id);
+        builderFunction.accept(builder);
+        ChatChannel channel = builder.build();
+        registerChannel(channel);
+        return channel;
+    }
+
+    /**
+     * Remove a custom channel
+     * @param channelId The ID of the channel to remove
+     * @return true if the channel was removed, false if it didn't exist or was a default channel
+     */
+    public boolean removeChannel(String channelId) {
+        // Don't allow removing default channels
+        if (isDefaultChannel(channelId)) {
+            return false;
+        }
+
+        ChatChannel removed = channels.remove(channelId.toLowerCase());
+        if (removed != null) {
+            // Update any players using this channel to use global
+            playerChannels.entrySet().removeIf(entry ->
+                    entry.getValue().getId().equals(channelId.toLowerCase()));
+        }
+        return removed != null;
+    }
+
+    /**
+     * Check if a channel is a default channel
+     * @param channelId The ID of the channel to check
+     * @return true if the channel is a default channel
+     */
+    protected boolean isDefaultChannel(String channelId) {
+        return channelId.equalsIgnoreCase("global") ||
+                channelId.equalsIgnoreCase("local") ||
+                channelId.equalsIgnoreCase("staff");
     }
 
     protected abstract void handleIncomingMessage(ChatMessage message);

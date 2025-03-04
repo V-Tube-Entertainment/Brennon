@@ -18,6 +18,7 @@ public final class MessagingChannels {
     public static final String TICKETS = "brennon:tickets";
     public static final String ALERTS = "brennon:alerts";
     public static final String MAINTENANCE = "brennon:maintenance";
+    public static final String CHAT = "brennon:chat";
 
     private MessagingChannels() {}
 }
