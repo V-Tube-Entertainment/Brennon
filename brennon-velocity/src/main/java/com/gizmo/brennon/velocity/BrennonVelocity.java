@@ -30,7 +30,7 @@ import java.util.UUID;
         description = "A comprehensive proxy management plugin",
         authors = {"Gizmo0320"}
 )
-public final class BrennonVelocity {
+public class BrennonVelocity {
     private final ProxyServer server;
     private final Logger logger;
     private final Path dataDirectory;
@@ -44,14 +44,14 @@ public final class BrennonVelocity {
     private BanManager banManager;
 
     @Inject
-    public BrennonVelocity(final ProxyServer server, final Logger logger, @DataDirectory final Path dataDirectory) {
+    public BrennonVelocity(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
         this.server = server;
         this.logger = logger;
         this.dataDirectory = dataDirectory;
     }
 
     @Subscribe
-    public void onProxyInitialize(final ProxyInitializeEvent event) {
+    public void onProxyInitialize(ProxyInitializeEvent event) {
         try {
             // Initialize core first
             this.core = new BrennonCore(dataDirectory);
@@ -74,18 +74,18 @@ public final class BrennonVelocity {
 
             logger.info("Brennon has been enabled!");
         } catch (Exception e) {
-            logger.error("Failed to initialize Brennon: " + e.getMessage(), e);
+            logger.error("Failed to initialize Brennon: {}", e.getMessage(), e);
         }
     }
 
     @Subscribe
-    public void onProxyShutdown(final ProxyShutdownEvent event) {
+    public void onProxyShutdown(ProxyShutdownEvent event) {
         if (core != null) {
             try {
                 logger.info("Shutting down Brennon Core...");
                 core.stop().get();
             } catch (Exception e) {
-                logger.error("Error shutting down BrennonCore: " + e.getMessage(), e);
+                logger.error("Error shutting down BrennonCore: {}", e.getMessage(), e);
             }
         }
         logger.info("Brennon has been disabled!");
