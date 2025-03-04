@@ -11,7 +11,6 @@ import java.nio.file.Path;
 import com.google.inject.Inject;
 import org.slf4j.Logger;
 
-import javax.inject.Singleton;
 
 /**
  * Manages configuration loading and saving for the Velocity module
@@ -20,7 +19,7 @@ import javax.inject.Singleton;
  * @since 2025-03-01 05:01:52
  */
 
-@Singleton
+
 public class ConfigManager {
     private final BrennonVelocity plugin;
     private final Logger logger;
