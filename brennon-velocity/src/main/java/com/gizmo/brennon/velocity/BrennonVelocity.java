@@ -58,7 +58,7 @@ public class BrennonVelocity {
         this.commandManager = new VelocityCommandManager(this);
         this.staffChatManager = new StaffChatManager(this);
         this.playerManager = new PlayerManager(this);
-        this.proxyManager = new ProxyManager(server, core);
+        this.proxyManager = new ProxyManager(this);
         this.banManager = new BanManager(this);
 
         // Register listeners
