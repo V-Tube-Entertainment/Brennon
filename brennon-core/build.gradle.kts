@@ -71,6 +71,10 @@ tasks.withType<JavaCompile> {
     options.release.set(17)
 }
 
+tasks.jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 tasks.test {
     useJUnitPlatform()
 }

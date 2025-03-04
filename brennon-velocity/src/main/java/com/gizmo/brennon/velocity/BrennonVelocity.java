@@ -27,7 +27,6 @@ import java.util.UUID;
         id = "brennon",
         name = "Brennon",
         version = "1.0-SNAPSHOT",
-        url = "https://github.com/V-Tube-Entertainment/Brennon",
         description = "A comprehensive proxy management plugin",
         authors = {"Gizmo0320"}
 )
