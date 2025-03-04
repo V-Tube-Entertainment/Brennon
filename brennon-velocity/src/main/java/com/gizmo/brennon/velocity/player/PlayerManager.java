@@ -38,7 +38,7 @@ public class PlayerManager {
         try {
             Files.createDirectories(playerDataFolder);
         } catch (IOException e) {
-            logger.severe("Failed to create player data directory: " + e.getMessage());
+            logger.error("Failed to create player data directory: " + e.getMessage());
         }
     }
 
@@ -76,7 +76,7 @@ public class PlayerManager {
             try (Reader reader = Files.newBufferedReader(playerFile)) {
                 return gson.fromJson(reader, VelocityPlayer.class);
             } catch (IOException e) {
-                logger.warning("Failed to load player data for " + player.getUsername() + ": " + e.getMessage());
+                logger.warn("Failed to load player data for " + player.getUsername() + ": " + e.getMessage());
             }
         }
         return null;
@@ -87,7 +87,7 @@ public class PlayerManager {
         try (Writer writer = Files.newBufferedWriter(playerFile)) {
             gson.toJson(player, writer);
         } catch (IOException e) {
-            logger.severe("Failed to save player data for " + player.getUsername() + ": " + e.getMessage());
+            logger.error("Failed to save player data for " + player.getUsername() + ": " + e.getMessage());
         }
     }
 

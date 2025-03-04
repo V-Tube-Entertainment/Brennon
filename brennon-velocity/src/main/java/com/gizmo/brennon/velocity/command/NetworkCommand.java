@@ -188,7 +188,7 @@ public class NetworkCommand implements SimpleCommand {
                     .append(Component.text("Error: " + e.getMessage(), NamedTextColor.GRAY))
                     .build());
 
-            plugin.getLogger().severe("Failed to reload network configuration: " + e.getMessage());
+            plugin.getLogger().error("Failed to reload network configuration: " + e.getMessage());
             e.printStackTrace();
 
             try {
@@ -198,7 +198,7 @@ public class NetworkCommand implements SimpleCommand {
                 invocation.source().sendMessage(Component.text("Attempted recovery of network services.", NamedTextColor.YELLOW));
             } catch (Exception recovery) {
                 invocation.source().sendMessage(Component.text("Recovery failed! Manual intervention may be required.", NamedTextColor.RED));
-                plugin.getLogger().severe("Recovery failed after reload attempt: " + recovery.getMessage());
+                plugin.getLogger().error("Recovery failed after reload attempt: " + recovery.getMessage());
             }
         }
     }

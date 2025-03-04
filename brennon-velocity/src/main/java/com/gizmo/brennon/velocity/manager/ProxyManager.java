@@ -245,7 +245,7 @@ public class ProxyManager {
                 plugin.getConfigManager().reloadConfig(); // For now, reload the main config
                 plugin.getLogger().info("Reloaded configuration for server: " + name);
             } catch (Exception e) {
-                plugin.getLogger().warning("Failed to reload configuration for server " + name + ": " + e.getMessage());
+                plugin.getLogger().warn("Failed to reload configuration for server " + name + ": " + e.getMessage());
             }
         });
     }

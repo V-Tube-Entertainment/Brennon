@@ -45,7 +45,7 @@ public class ConfigManager {
                 }
             }
         } catch (IOException e) {
-            logger.severe("Failed to load configuration: " + e.getMessage());
+            logger.error("Failed to load configuration: " + e.getMessage());
             config = new Config();
         }
     }
@@ -60,7 +60,7 @@ public class ConfigManager {
                 gson.toJson(config, writer);
             }
         } catch (IOException e) {
-            logger.severe("Failed to save configuration: " + e.getMessage());
+            logger.error("Failed to save configuration: " + e.getMessage());
         }
     }
 
@@ -77,7 +77,7 @@ public class ConfigManager {
 
         // Validate loaded config
         if (config == null) {
-            logger.severe("Failed to load configuration, rolling back to previous config");
+            logger.error("Failed to load configuration, rolling back to previous config");
             config = oldConfig;
             saveConfig();
             throw new IllegalStateException("Failed to load configuration");
