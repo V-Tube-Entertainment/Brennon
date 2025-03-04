@@ -102,16 +102,55 @@ public class ProxyManager {
                 if (ping != null) {
                     monitor.updateStatus(true, ping.getPlayers().map(p -> p.getOnline()).orElse(0));
 
-                    // Update server status using the core's method
+                    // Update the core server info
                     serverManager.getServer(serverId).ifPresent(serverInfo -> {
-                        // Update server status directly
-                        serverManager.updateServerStatus(serverId, true, monitor.playerCount);
+                        com.gizmo.brennon.core.server.ServerInfo updatedInfo = new com.gizmo.brennon.core.server.ServerInfo(
+                                serverInfo.id(),
+                                serverInfo.name(),
+                                serverInfo.type(),
+                                serverInfo.group(),
+                                serverInfo.host(),
+                                serverInfo.port(),
+                                serverInfo.restricted(),
+                                ServerStatus.ONLINE,
+                                serverInfo.properties(),
+                                serverInfo.maxPlayers(),
+                                monitor.playerCount,
+                                serverInfo.tps(),
+                                serverInfo.memoryUsage(),
+                                serverInfo.cpuUsage(),
+                                System.currentTimeMillis(),
+                                serverInfo.uptime(),
+                                serverInfo.createdAt()
+                        );
+
+                        // Update server info in core
+                        serverManager.registerServer(
+                                updatedInfo.id(),
+                                updatedInfo.name(),
+                                updatedInfo.type(),
+                                updatedInfo.group(),
+                                updatedInfo.host(),
+                                updatedInfo.port(),
+                                updatedInfo.restricted()
+                        );
                     });
                 } else {
                     monitor.updateStatus(false, 0);
                     if (monitor.failedPings >= 3) {
-                        // Update server status to offline
-                        serverManager.updateServerStatus(serverId, false, 0);
+                        serverManager.getServer(serverId).ifPresent(serverInfo -> {
+                            serverManager.unregisterServer(serverId);
+                            // Re-register with offline status
+                            serverManager.registerServer(
+                                    serverInfo.id(),
+                                    serverInfo.name(),
+                                    serverInfo.type(),
+                                    serverInfo.group(),
+                                    serverInfo.host(),
+                                    serverInfo.port(),
+                                    serverInfo.restricted()
+                            );
+                        });
                     }
                 }
             }).exceptionally(throwable -> {

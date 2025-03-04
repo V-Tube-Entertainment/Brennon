@@ -133,4 +133,21 @@ public class PlayerManager {
                         .append(Component.text(message, color))
                         .build()));
     }
+
+    public void handleServerSwitch(Player player, String serverName) {
+        VelocityPlayer vPlayer = getPlayer(player);
+        if (vPlayer != null) {
+            vPlayer.setLastServer(serverName);
+            savePlayer(vPlayer);
+
+            // Notify staff if the player is staff
+            if (player.hasPermission("brennon.staff")) {
+                broadcastStaffMessage(
+                        player.getUsername(),
+                        String.format(" has connected to %s", serverName),
+                        NamedTextColor.GREEN
+                );
+            }
+        }
+    }
 }
