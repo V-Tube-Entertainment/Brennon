@@ -19,7 +19,6 @@ import com.gizmo.brennon.velocity.listener.PlayerListener;
 import com.gizmo.brennon.velocity.manager.BanManager;
 import org.slf4j.Logger;
 
-import javax.inject.Singleton;
 import java.nio.file.Path;
 import java.util.UUID;
 
@@ -31,41 +30,24 @@ import java.util.UUID;
         description = "A comprehensive proxy management plugin",
         authors = {"Gizmo0320"}
 )
-@Singleton
 public class BrennonVelocity {
 
     private final ProxyServer server;
     private final Logger logger;
     private final Path dataDirectory;
-    private final ConfigManager configManager;
-    private final VelocityCommandManager commandManager;
-    private final StaffChatManager staffChatManager;
-    private final PlayerManager playerManager;
-    private final ProxyManager proxyManager;
-    private final BanManager banManager;
     private BrennonCore core;
+    private ConfigManager configManager;
+    private VelocityCommandManager commandManager;
+    private StaffChatManager staffChatManager;
+    private PlayerManager playerManager;
+    private ProxyManager proxyManager;
+    private BanManager banManager;
 
     @Inject
-    public BrennonVelocity(
-            ProxyServer server,
-            Logger logger,
-            @DataDirectory Path dataDirectory,
-            ConfigManager configManager,
-            VelocityCommandManager commandManager,
-            StaffChatManager staffChatManager,
-            PlayerManager playerManager,
-            ProxyManager proxyManager,
-            BanManager banManager
-    ) {
+    public BrennonVelocity(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
         this.server = server;
         this.logger = logger;
         this.dataDirectory = dataDirectory;
-        this.configManager = configManager;
-        this.commandManager = commandManager;
-        this.staffChatManager = staffChatManager;
-        this.playerManager = playerManager;
-        this.proxyManager = proxyManager;
-        this.banManager = banManager;
     }
 
     @Subscribe
@@ -76,6 +58,14 @@ public class BrennonVelocity {
 
             // Start core and wait for completion
             this.core.start().get();
+
+            // Initialize managers
+            this.configManager = new ConfigManager(this);
+            this.commandManager = new VelocityCommandManager(this);
+            this.staffChatManager = new StaffChatManager(this);
+            this.playerManager = new PlayerManager(this);
+            this.proxyManager = new ProxyManager(this);
+            this.banManager = new BanManager(this);
 
             // Register listeners
             server.getEventManager().register(this, new ChatListener(this));
