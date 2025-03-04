@@ -1,231 +1,259 @@
 package com.gizmo.brennon.core.balancing;
 
-import com.gizmo.brennon.core.BrennonCore;
-import com.gizmo.brennon.core.server.ServerManager;
+import com.google.inject.Inject;
+import com.gizmo.brennon.core.server.ServerGroup;
+import com.gizmo.brennon.core.server.ServerGroupManager;
 import com.gizmo.brennon.core.server.ServerInfo;
+import com.gizmo.brennon.core.server.ServerManager;
+import com.gizmo.brennon.core.service.Service;
+import org.slf4j.Logger;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Advanced load balancer for server distribution
+ * Enhanced load balancer with advanced server monitoring and balancing capabilities
  *
  * @author Gizmo0320
- * @since 2025-03-04 00:30:27
+ * @since 2025-03-04 00:41:50
  */
-public class LoadBalancer {
-    private final BrennonCore core;
-    private final ServerManager serverManager;
+public class LoadBalancer implements Service {
     private final Logger logger;
-    private final Map<String, ServerLoadStats> serverStats;
+    private final ServerManager serverManager;
+    private final ServerGroupManager groupManager;
+    private final AtomicBoolean isRunning;
+    private final AtomicReference<Thread> balancerThread;
+    private final Map<String, ServerHealthStats> serverHealth;
 
-    // Configuration
-    private double tpsWeight = 0.4;
-    private double playerCountWeight = 0.3;
-    private double memoryWeight = 0.2;
-    private double responseTimeWeight = 0.1;
-    private int targetPlayersPerServer = 50;
-    private double highLoadThreshold = 0.75;
+    // Balancing configuration
+    private double tpsWeight = 0.35;
+    private double playerWeight = 0.25;
+    private double memoryWeight = 0.20;
+    private double cpuWeight = 0.20;
+    private double highLoadThreshold = 0.80;
     private double criticalLoadThreshold = 0.90;
 
-    public LoadBalancer(BrennonCore core) {
-        this.core = core;
-        this.serverManager = core.getServerManager();
-        this.logger = core.getLogger();
-        this.serverStats = new ConcurrentHashMap<>();
+    @Inject
+    public LoadBalancer(Logger logger, ServerManager serverManager, ServerGroupManager groupManager) {
+        this.logger = logger;
+        this.serverManager = serverManager;
+        this.groupManager = groupManager;
+        this.isRunning = new AtomicBoolean(false);
+        this.balancerThread = new AtomicReference<>();
+        this.serverHealth = new ConcurrentHashMap<>();
     }
 
-    /**
-     * Represents detailed server load statistics
-     */
-    public static class ServerLoadStats {
-        private double tps;
-        private int playerCount;
-        private double memoryUsage;
-        private long responseTime;
-        private double loadFactor;
-        private long lastUpdate;
-        private final Queue<Double> loadHistory;
-        private static final int HISTORY_SIZE = 10;
-
-        public ServerLoadStats() {
-            this.tps = 20.0;
-            this.playerCount = 0;
-            this.memoryUsage = 0.0;
-            this.responseTime = 0;
-            this.loadFactor = 0.0;
-            this.lastUpdate = System.currentTimeMillis();
-            this.loadHistory = new LinkedList<>();
+    @Override
+    public void enable() throws Exception {
+        if (isRunning.compareAndSet(false, true)) {
+            Thread thread = new Thread(this::balancingLoop, "LoadBalancer-Thread");
+            balancerThread.set(thread);
+            thread.start();
+            logger.info("LoadBalancer enabled and started balancing loop");
         }
-
-        public void update(double tps, int playerCount, double memoryUsage, long responseTime) {
-            this.tps = tps;
-            this.playerCount = playerCount;
-            this.memoryUsage = memoryUsage;
-            this.responseTime = responseTime;
-            this.lastUpdate = System.currentTimeMillis();
-        }
-
-        public void updateLoadFactor(double loadFactor) {
-            this.loadFactor = loadFactor;
-            loadHistory.offer(loadFactor);
-            while (loadHistory.size() > HISTORY_SIZE) {
-                loadHistory.poll();
-            }
-        }
-
-        public double getAverageLoad() {
-            return loadHistory.stream()
-                    .mapToDouble(Double::doubleValue)
-                    .average()
-                    .orElse(loadFactor);
-        }
-
-        // Getters
-        public double getTps() { return tps; }
-        public int getPlayerCount() { return playerCount; }
-        public double getMemoryUsage() { return memoryUsage; }
-        public long getResponseTime() { return responseTime; }
-        public double getLoadFactor() { return loadFactor; }
-        public long getLastUpdate() { return lastUpdate; }
     }
 
-    /**
-     * Finds the best server in a group based on current load and specific requirements
-     */
-    public Optional<ServerInfo> findBestServer(String groupId, ServerRequirements requirements) {
-        try {
-            List<ServerInfo> groupServers = new ArrayList<>(serverManager.getServersByGroup(groupId));
-            if (groupServers.isEmpty()) {
-                return Optional.empty();
+    @Override
+    public void disable() throws Exception {
+        if (isRunning.compareAndSet(true, false)) {
+            Thread thread = balancerThread.get();
+            if (thread != null) {
+                thread.interrupt();
+                thread.join(5000); // Wait up to 5 seconds for clean shutdown
             }
+            serverHealth.clear();
+            logger.info("LoadBalancer disabled");
+        }
+    }
 
-            // Filter servers based on requirements
-            if (requirements != null) {
-                groupServers.removeIf(server -> !meetsRequirements(server, requirements));
-            }
-
-            // Filter out overloaded or unhealthy servers
-            groupServers.removeIf(server -> {
-                ServerLoadStats stats = serverStats.get(server.id());
-                return stats != null &&
-                        (stats.getLoadFactor() > criticalLoadThreshold ||
-                                !isServerHealthy(server));
-            });
-
-            if (groupServers.isEmpty()) {
-                logger.warning("No suitable servers found in group: " + groupId);
-                return Optional.empty();
-            }
-
-            // Find server with lowest load
-            return groupServers.stream()
-                    .min(this::compareServerLoad);
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "Error finding best server in group: " + groupId, e);
+    public Optional<ServerInfo> findBestServer(String groupId, UUID playerId) {
+        if (!isRunning.get()) {
             return Optional.empty();
         }
-    }
 
-    /**
-     * Calculates the current load factor for a server
-     */
-    public double calculateServerLoad(String serverId) {
-        ServerInfo server = serverManager.getServer(serverId).orElse(null);
-        if (server == null) return 1.0;
-
-        ServerLoadStats stats = serverStats.computeIfAbsent(serverId, k -> new ServerLoadStats());
-
-        // Calculate individual factors
-        double tpsFactor = Math.max(0, (20.0 - stats.getTps()) / 20.0);
-        double playerFactor = (double) stats.getPlayerCount() / targetPlayersPerServer;
-        double memoryFactor = stats.getMemoryUsage();
-        double responseFactor = Math.min(1.0, stats.getResponseTime() / 1000.0); // Scale to 1 second
-
-        // Calculate weighted load
-        double loadFactor = (tpsFactor * tpsWeight) +
-                (playerFactor * playerCountWeight) +
-                (memoryFactor * memoryWeight) +
-                (responseFactor * responseTimeWeight);
-
-        // Update stats
-        stats.updateLoadFactor(loadFactor);
-
-        return loadFactor;
-    }
-
-    /**
-     * Updates server statistics
-     */
-    public void updateServerStats(String serverId, double tps, int playerCount,
-                                  double memoryUsage, long responseTime) {
-        serverStats.computeIfAbsent(serverId, k -> new ServerLoadStats())
-                .update(tps, playerCount, memoryUsage, responseTime);
-
-        // Check for high load
-        double load = calculateServerLoad(serverId);
-        if (load > highLoadThreshold) {
-            logger.warning("Server " + serverId + " is under high load: " +
-                    String.format("%.2f", load * 100) + "%");
+        Optional<ServerGroup> groupOpt = groupManager.getGroup(groupId);
+        if (groupOpt.isEmpty()) {
+            return Optional.empty();
         }
-    }
 
-    private boolean meetsRequirements(ServerInfo server, ServerRequirements requirements) {
-        ServerLoadStats stats = serverStats.get(server.id());
-        if (stats == null) return false;
+        ServerGroup group = groupOpt.get();
+        List<ServerInfo> availableServers = new ArrayList<>();
 
-        return (!requirements.hasMinTps() || stats.getTps() >= requirements.getMinTps()) &&
-                (!requirements.hasMaxPlayers() || stats.getPlayerCount() < requirements.getMaxPlayers()) &&
-                (!requirements.hasMaxMemory() || stats.getMemoryUsage() < requirements.getMaxMemory()) &&
-                (!requirements.hasMaxResponseTime() || stats.getResponseTime() < requirements.getMaxResponseTime());
+        for (String serverId : group.serverIds()) {
+            serverManager.getServer(serverId).ifPresent(server -> {
+                if (isServerHealthy(server)) {
+                    availableServers.add(server);
+                }
+            });
+        }
+
+        if (availableServers.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // Sort servers by comprehensive score
+        availableServers.sort((s1, s2) ->
+                Double.compare(calculateServerScore(s2), calculateServerScore(s1)));
+
+        return Optional.of(availableServers.get(0));
     }
 
     private boolean isServerHealthy(ServerInfo server) {
-        ServerLoadStats stats = serverStats.get(server.id());
-        if (stats == null) return false;
+        ServerHealthStats health = serverHealth.get(server.id());
+        if (health == null) {
+            return server.isOnline() && !server.isFull();
+        }
 
-        return stats.getTps() >= 15.0 && // Minimum acceptable TPS
-                stats.getResponseTime() < 5000 && // Max 5 second response time
-                System.currentTimeMillis() - stats.getLastUpdate() < 60000; // Last update within 60 seconds
+        return server.isOnline() &&
+                !server.isFull() &&
+                server.tps() >= 17.0 &&
+                health.getLoadFactor() < criticalLoadThreshold;
     }
 
-    private int compareServerLoad(ServerInfo server1, ServerInfo server2) {
-        double load1 = serverStats.get(server1.id()).getAverageLoad();
-        double load2 = serverStats.get(server2.id()).getAverageLoad();
-        return Double.compare(load1, load2);
+    private double calculateServerScore(ServerInfo server) {
+        double score = 100.0;
+        ServerHealthStats health = serverHealth.computeIfAbsent(
+                server.id(),
+                k -> new ServerHealthStats()
+        );
+
+        // TPS factor (0-20)
+        double tpsFactor = server.tps() / 20.0;
+
+        // Player distribution factor (prefer servers with some players but not full)
+        double playerRatio = (double) server.onlinePlayers() / server.maxPlayers();
+        double playerFactor = 1.0 - Math.abs(0.5 - playerRatio);
+
+        // Resource usage factors
+        double memoryFactor = 1.0 - server.memoryUsage();
+        double cpuFactor = 1.0 - server.cpuUsage();
+
+        // Calculate weighted score
+        score *= (tpsFactor * tpsWeight) +
+                (playerFactor * playerWeight) +
+                (memoryFactor * memoryWeight) +
+                (cpuFactor * cpuWeight);
+
+        // Update health stats
+        health.updateStats(
+                server.tps(),
+                server.onlinePlayers(),
+                server.memoryUsage(),
+                server.cpuUsage()
+        );
+
+        return score;
     }
 
-    // Configuration methods
-    public void setWeights(double tps, double players, double memory, double response) {
-        double total = tps + players + memory + response;
-        this.tpsWeight = tps / total;
-        this.playerCountWeight = players / total;
-        this.memoryWeight = memory / total;
-        this.responseTimeWeight = response / total;
+    private void balancingLoop() {
+        while (isRunning.get() && !Thread.currentThread().isInterrupted()) {
+            try {
+                for (ServerGroup group : groupManager.getAllGroups()) {
+                    if (group.properties().autoScaling()) {
+                        balanceGroup(group);
+                    }
+                }
+                TimeUnit.SECONDS.sleep(30);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                logger.error("Error in balancing loop", e);
+                try {
+                    TimeUnit.SECONDS.sleep(5);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
     }
 
-    public void setTargetPlayersPerServer(int count) {
-        this.targetPlayersPerServer = count;
+    public Map<String, ServerInfo> balanceGroup(ServerGroup group) {
+        Map<String, ServerInfo> serverAssignments = new HashMap<>();
+        List<ServerInfo> groupServers = new ArrayList<>();
+
+        // Collect online servers in group
+        for (String serverId : group.serverIds()) {
+            serverManager.getServer(serverId).ifPresent(server -> {
+                if (server.isOnline()) {
+                    groupServers.add(server);
+                }
+            });
+        }
+
+        if (groupServers.isEmpty()) {
+            return serverAssignments;
+        }
+
+        // Calculate metrics for scaling decisions
+        int totalPlayers = groupServers.stream()
+                .mapToInt(ServerInfo::onlinePlayers)
+                .sum();
+        int totalCapacity = groupServers.stream()
+                .mapToInt(ServerInfo::maxPlayers)
+                .sum();
+        double averageLoad = groupServers.stream()
+                .mapToDouble(this::calculateServerScore)
+                .average()
+                .orElse(0.0);
+
+        // Handle scaling based on load and player count
+        if (totalPlayers > totalCapacity * highLoadThreshold &&
+                groupServers.size() < group.properties().maxServers()) {
+            handleScaleUp(group);
+        } else if (totalPlayers < totalCapacity * 0.3 &&
+                groupServers.size() > group.properties().minServers() &&
+                averageLoad < 0.4) {
+            handleScaleDown(group, groupServers);
+        }
+
+        return serverAssignments;
     }
 
-    public void setLoadThresholds(double high, double critical) {
-        this.highLoadThreshold = high;
-        this.criticalLoadThreshold = critical;
+    private void handleScaleUp(ServerGroup group) {
+        logger.info("Initiating scale up for group: {}", group.id());
+        // Implementation would be provided by the platform-specific code
     }
 
-    /**
-     * Gets current load statistics for a server
-     */
-    public Optional<ServerLoadStats> getServerStats(String serverId) {
-        return Optional.ofNullable(serverStats.get(serverId));
+    private void handleScaleDown(ServerGroup group, List<ServerInfo> groupServers) {
+        logger.info("Initiating scale down for group: {}", group.id());
+        // Implementation would be provided by the platform-specific code
     }
 
-    /**
-     * Gets all server statistics
-     */
-    public Map<String, ServerLoadStats> getAllServerStats() {
-        return Collections.unmodifiableMap(serverStats);
+    // Health tracking inner class
+    private static class ServerHealthStats {
+        private double tps;
+        private int playerCount;
+        private double memoryUsage;
+        private double cpuUsage;
+        private double loadFactor;
+        private long lastUpdate;
+
+        public ServerHealthStats() {
+            this.tps = 20.0;
+            this.playerCount = 0;
+            this.memoryUsage = 0.0;
+            this.cpuUsage = 0.0;
+            this.loadFactor = 0.0;
+            this.lastUpdate = System.currentTimeMillis();
+        }
+
+        public void updateStats(double tps, int playerCount, double memoryUsage, double cpuUsage) {
+            this.tps = tps;
+            this.playerCount = playerCount;
+            this.memoryUsage = memoryUsage;
+            this.cpuUsage = cpuUsage;
+            this.loadFactor = (cpuUsage * 0.4) + (memoryUsage * 0.3) +
+                    ((20.0 - tps) / 20.0 * 0.3);
+            this.lastUpdate = System.currentTimeMillis();
+        }
+
+        public double getLoadFactor() {
+            return loadFactor;
+        }
     }
 }

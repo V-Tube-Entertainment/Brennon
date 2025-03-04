@@ -16,6 +16,7 @@ import com.gizmo.brennon.velocity.manager.ProxyManager;
 import com.gizmo.brennon.velocity.player.PlayerManager;
 import com.gizmo.brennon.velocity.listener.ConnectionListener;
 import com.gizmo.brennon.velocity.listener.ChatListener;
+import com.gizmo.brennon.velocity.manager.BanManager;
 
 import java.nio.file.Path;
 import java.util.logging.Logger;
@@ -38,6 +39,7 @@ public class BrennonVelocity {
     private StaffChatManager staffChatManager;
     private PlayerManager playerManager;
     private ProxyManager proxyManager;
+    private BanManager banManager;
 
     @Inject
     public BrennonVelocity(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
@@ -57,6 +59,7 @@ public class BrennonVelocity {
         this.staffChatManager = new StaffChatManager(this);
         this.playerManager = new PlayerManager(this);
         this.proxyManager = new ProxyManager(server, core);
+        this.banManager = new BanManager(this);
 
         // Register listeners
         server.getEventManager().register(this, new ChatListener(this));
@@ -85,4 +88,5 @@ public class BrennonVelocity {
     public StaffChatManager getStaffChatManager() { return staffChatManager; }
     public PlayerManager getPlayerManager() { return playerManager; }
     public ProxyManager getProxyManager() { return proxyManager; }
+    public BanManager getBanManager() { return banManager; }
 }

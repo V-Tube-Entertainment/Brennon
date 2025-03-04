@@ -59,17 +59,8 @@ public class ConnectionListener {
     @Subscribe
     public void onPostLogin(PostLoginEvent event) {
         Player player = event.getPlayer();
-
-        // Initialize player data
         plugin.getPlayerManager().initializePlayer(player);
-
-        // Process join messages and alerts
         sendJoinMessages(player);
-
-        // Handle first join
-        if (!player.hasPlayedBefore()) {
-            handleFirstJoin(player);
-        }
     }
 
     @Subscribe
