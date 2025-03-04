@@ -7,11 +7,13 @@ import com.gizmo.brennon.core.BrennonCore;
 import com.gizmo.brennon.core.server.ServerManager;
 import com.gizmo.brennon.core.server.ServerType;
 import com.gizmo.brennon.core.balancing.LoadBalancer;
+import com.gizmo.brennon.core.server.ServerStatus;
 import com.gizmo.brennon.velocity.BrennonVelocity;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
 import java.net.InetSocketAddress;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -20,7 +22,7 @@ import java.util.concurrent.TimeUnit;
  * Manages server registration and routing for the Velocity proxy.
  *
  * @author Gizmo0320
- * @since 2025-03-04 01:04:38
+ * @since 2025-03-04 01:24:21
  */
 public class ProxyManager {
     private final BrennonVelocity plugin;
@@ -29,47 +31,28 @@ public class ProxyManager {
     private final ServerManager serverManager;
     private final LoadBalancer loadBalancer;
     private final Map<String, RegisteredServer> servers;
-    private final Map<String, ServerStatus> serverStatuses;
+    private final Map<String, ServerMonitorStatus> serverMonitoring;
 
-    public static class ServerStatus {
-        private boolean online;
-        private long lastPing;
-        private int playerCount;
-        private double tps;
-        private double memoryUsage;
+    private static class ServerMonitorStatus {
         private int failedPings;
+        private long lastPingTime;
+        private int playerCount;
 
-        public ServerStatus() {
-            this.online = false;
-            this.lastPing = System.currentTimeMillis();
-            this.playerCount = 0;
-            this.tps = 20.0;
-            this.memoryUsage = 0.0;
+        public ServerMonitorStatus() {
             this.failedPings = 0;
+            this.lastPingTime = System.currentTimeMillis();
+            this.playerCount = 0;
         }
 
-        public void updateStatus(boolean online, int playerCount, double tps, double memoryUsage) {
-            this.online = online;
-            this.playerCount = playerCount;
-            this.tps = tps;
-            this.memoryUsage = memoryUsage;
-            this.lastPing = System.currentTimeMillis();
-            if (online) {
+        public void updateStatus(boolean success, int playerCount) {
+            if (success) {
                 this.failedPings = 0;
+                this.playerCount = playerCount;
+            } else {
+                this.failedPings++;
             }
+            this.lastPingTime = System.currentTimeMillis();
         }
-
-        public void incrementFailedPings() {
-            this.failedPings++;
-            if (this.failedPings >= 3) {
-                this.online = false;
-            }
-        }
-
-        public boolean isOnline() { return online; }
-        public int getPlayerCount() { return playerCount; }
-        public double getTps() { return tps; }
-        public double getMemoryUsage() { return memoryUsage; }
     }
 
     public ProxyManager(BrennonVelocity plugin) {
@@ -79,12 +62,10 @@ public class ProxyManager {
         this.serverManager = core.getServerManager();
         this.loadBalancer = core.getLoadBalancer();
         this.servers = new ConcurrentHashMap<>();
-        this.serverStatuses = new ConcurrentHashMap<>();
+        this.serverMonitoring = new ConcurrentHashMap<>();
 
         // Register existing servers
         registerServers();
-
-        // Start server monitoring
         startMonitoring();
     }
 
@@ -96,7 +77,7 @@ public class ProxyManager {
             );
             RegisteredServer registeredServer = proxy.registerServer(info);
             servers.put(server.id(), registeredServer);
-            serverStatuses.put(server.id(), new ServerStatus());
+            serverMonitoring.put(server.id(), new ServerMonitorStatus());
         });
     }
 
@@ -112,43 +93,31 @@ public class ProxyManager {
         for (Map.Entry<String, RegisteredServer> entry : servers.entrySet()) {
             String serverId = entry.getKey();
             RegisteredServer server = entry.getValue();
-            ServerStatus status = serverStatuses.computeIfAbsent(serverId, k -> new ServerStatus());
+            ServerMonitorStatus monitor = serverMonitoring.computeIfAbsent(
+                    serverId,
+                    k -> new ServerMonitorStatus()
+            );
 
             server.ping().thenAccept(ping -> {
                 if (ping != null) {
-                    status.updateStatus(
-                            true,
-                            ping.getPlayers().map(p -> p.getOnline()).orElse(0),
-                            serverManager.getServer(serverId).map(s -> s.getTps()).orElse(20.0),
-                            serverManager.getServer(serverId).map(s -> s.getMemoryUsage()).orElse(0.0)
-                    );
-                } else {
-                    status.incrementFailedPings();
-                }
+                    monitor.updateStatus(true, ping.getPlayers().map(p -> p.getOnline()).orElse(0));
 
-                updateServerStatus(serverId, status.isOnline(), status.getPlayerCount());
+                    // Update server status using the core's method
+                    serverManager.getServer(serverId).ifPresent(serverInfo -> {
+                        // Update server status directly
+                        serverManager.updateServerStatus(serverId, true, monitor.playerCount);
+                    });
+                } else {
+                    monitor.updateStatus(false, 0);
+                    if (monitor.failedPings >= 3) {
+                        // Update server status to offline
+                        serverManager.updateServerStatus(serverId, false, 0);
+                    }
+                }
             }).exceptionally(throwable -> {
-                status.incrementFailedPings();
-                updateServerStatus(serverId, false, 0);
+                monitor.updateStatus(false, 0);
                 return null;
             });
-        }
-    }
-
-    private void updateServerStatus(String serverId, boolean online, int playerCount) {
-        serverManager.updateServerStatus(serverId, online, playerCount);
-
-        if (!online) {
-            // Notify staff about server status change
-            proxy.getAllPlayers().stream()
-                    .filter(p -> p.hasPermission("brennon.staff"))
-                    .forEach(p -> p.sendMessage(
-                            Component.text()
-                                    .append(Component.text("[Server] ", NamedTextColor.RED))
-                                    .append(Component.text(serverId, NamedTextColor.YELLOW))
-                                    .append(Component.text(" is now offline!", NamedTextColor.RED))
-                                    .build()
-                    ));
         }
     }
 
@@ -167,9 +136,9 @@ public class ProxyManager {
         ServerInfo info = new ServerInfo(id, new InetSocketAddress(host, port));
         RegisteredServer server = proxy.registerServer(info);
         servers.put(id, server);
-        serverStatuses.put(id, new ServerStatus());
+        serverMonitoring.put(id, new ServerMonitorStatus());
 
-        // Register with core server manager
+        // Register with core server manager using the correct method signature
         serverManager.registerServer(
                 id,                  // Server ID
                 id,                  // Server name (using ID for now)
@@ -177,7 +146,7 @@ public class ProxyManager {
                 groupId != null ? groupId : "default",
                 host,
                 port,
-                false
+                false               // Not restricted by default
         );
 
         // Notify staff about new server
@@ -198,7 +167,7 @@ public class ProxyManager {
 
     public void unregisterServer(String id) {
         servers.remove(id);
-        serverStatuses.remove(id);
+        serverMonitoring.remove(id);
         proxy.unregisterServer(
                 new ServerInfo(id, new InetSocketAddress("localhost", 0))
         );
@@ -220,17 +189,11 @@ public class ProxyManager {
         return Collections.unmodifiableMap(servers);
     }
 
-    public Map<String, ServerStatus> getServerStatuses() {
-        return Collections.unmodifiableMap(serverStatuses);
+    public Map<String, ServerMonitorStatus> getServerMonitoringStatus() {
+        return Collections.unmodifiableMap(serverMonitoring);
     }
 
-    public Optional<ServerStatus> getServerStatus(String serverId) {
-        return Optional.ofNullable(serverStatuses.get(serverId));
-    }
-
-    public boolean isServerOnline(String serverId) {
-        return getServerStatus(serverId)
-                .map(ServerStatus::isOnline)
-                .orElse(false);
+    public Optional<ServerMonitorStatus> getServerMonitoringStatus(String serverId) {
+        return Optional.ofNullable(serverMonitoring.get(serverId));
     }
 }
