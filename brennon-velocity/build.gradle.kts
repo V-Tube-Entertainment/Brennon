@@ -27,9 +27,15 @@ dependencies {
     // implementation("javax.inject:javax.inject:1")
 
     // Redis
-    implementation("io.lettuce:lettuce-core:6.3.1.RELEASE") {
-        exclude(group = "io.netty") // Avoid conflicts with Velocity's netty
-    }
+    implementation("io.lettuce:lettuce-core:6.3.1.RELEASE")
+
+    // Database
+    implementation("com.zaxxer:HikariCP:5.0.1")
+    implementation("mysql:mysql-connector-java:8.0.33")        // MySQL
+    implementation("org.mariadb.jdbc:mariadb-java-client:3.1.4")  // MariaDB
+    implementation("org.postgresql:postgresql:42.6.0")         // PostgreSQL
+    implementation("org.xerial:sqlite-jdbc:3.42.0.0")         // SQLite
+    implementation("com.h2database:h2:2.2.220")
 }
 
 tasks {
@@ -44,6 +50,14 @@ tasks {
 
         dependencies {
             include(project(":brennon-core"))
+            include(dependency("io.lettuce:lettuce-core"))
+            include(dependency("com.zaxxer:HikariCP"))
+            include(dependency("mysql:mysql-connector-java"))
+            include(dependency("org.mariadb.jdbc:mariadb-java-client"))
+            include(dependency("org.postgresql:postgresql"))
+            include(dependency("org.xerial:sqlite-jdbc"))
+            include(dependency("com.google.code.gson:gson"))
+            include(dependency("org.yaml:snakeyaml"))
         }
 
         // Relocate all important dependencies to avoid conflicts
@@ -51,15 +65,14 @@ tasks {
         relocate("com.google.gson", "com.gizmo.brennon.velocity.lib.gson")
         relocate("org.yaml.snakeyaml", "com.gizmo.brennon.velocity.lib.yaml")
         relocate("com.zaxxer.hikari", "com.gizmo.brennon.velocity.lib.hikari")
+        relocate("reactor", "com.gizmo.brennon.velocity.lib.reactor") // Required for Lettuce
+        relocate("io.netty", "com.gizmo.brennon.velocity.lib.netty")
+        relocate("com.zaxxer.hikari", "com.gizmo.brennon.velocity.lib.hikari")
+        relocate("mysql", "com.gizmo.brennon.velocity.lib.mysql")
+        relocate("org.mariadb.jdbc", "com.gizmo.brennon.velocity.lib.mariadb")
+        relocate("org.postgresql", "com.gizmo.brennon.velocity.lib.postgresql")
+        relocate("org.sqlite", "com.gizmo.brennon.velocity.lib.sqlite")
 
-        // Don't relocate core as it's your own code
-        // relocate("com.gizmo.brennon.core", "com.gizmo.brennon.velocity.lib.core")
-
-        // Don't relocate Guice or javax.inject as they're provided by Velocity
-        // relocate("com.google.inject", "com.gizmo.brennon.velocity.lib.inject")
-        // relocate("javax.inject", "com.gizmo.brennon.velocity.lib.javax.inject")
-
-        // Make sure service files are merged properly
         mergeServiceFiles()
     }
 

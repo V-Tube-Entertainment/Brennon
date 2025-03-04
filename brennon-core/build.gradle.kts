@@ -20,9 +20,7 @@ dependencies {
     implementation("com.h2database:h2:2.2.220")               // H2
 
     // Redis
-    api("io.lettuce:lettuce-core:6.3.1.RELEASE") {
-        exclude(group = "io.netty") // Avoid conflicts with Minecraft's netty
-    }
+    api("io.lettuce:lettuce-core:6.3.1.RELEASE")
 
     // Adventure API
     api(platform("net.kyori:adventure-bom:4.15.0"))
@@ -51,7 +49,7 @@ dependencies {
     api("com.github.ben-manes.caffeine:caffeine:3.1.8")
 
     // Logging
-    api("org.slf4j:slf4j-api:2.0.11")
+    implementation("org.slf4j:slf4j-api:2.0.11")
     api("ch.qos.logback:logback-classic:1.4.14")
 
     // LuckPerms API
