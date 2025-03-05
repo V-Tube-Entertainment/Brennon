@@ -1,0 +1,11 @@
+NeoForge Module (Modded Server Support)
+- Implement NeoForge-compatible punishment system (ban, mute, kick, warn).
+- Implement NeoForge-compatible ticket system (create/view/resolve tickets).
+- Ensure Forge mod compatibility for all features.
+- Implement Adventure Library integration.
+- Develop command handlers for `/brennon` commands.
+- Sync Forge server bans, mutes, and tickets via Redis.
+- Store Forge server data in SQL.
+- Run compatibility tests with modpacks.
+- Write unit tests for Forge API integration.
+- Provide developer documentation.

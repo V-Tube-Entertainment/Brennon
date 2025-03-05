@@ -1,0 +1,11 @@
+Sponge Module (API 14)
+- Implement Sponge-compatible punishment system (ban, mute, kick, warn).
+- Implement Sponge-compatible ticket system (create/view/resolve tickets).
+- Ensure compatibility with Sponge API 12 & 14.
+- Implement Adventure Library integration.
+- Develop command handlers for `/brennon`.
+- Sync Sponge server bans, mutes, and tickets via Redis.
+- Store Sponge server data in SQL.
+- Run compatibility tests with Sponge plugins.
+- Write unit tests for Sponge API integration.
+- Provide developer documentation.

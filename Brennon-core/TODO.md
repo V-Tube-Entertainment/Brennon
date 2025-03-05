@@ -1,0 +1,13 @@
+Core Module (Shared Across All Platforms)
+- Set up the Gradle build system for modular development.
+- Implement configuration management for SQL and Redis.
+- Create a centralized API for communication across all platforms.
+- Develop common utilities (e.g., database access, logging, event handling).
+- Implement a unified command system for cross-platform consistency.
+- Set up permissions & role-based access control.
+- Integrate Redis for real-time updates across all servers.
+- Implement SQL storage for persistent data.
+- Develop a cross-server event bus to handle communication.
+- Write unit tests for core functionality.
+- Provide API documentation for developers.
+- Ensure cross-platform compatibility testing.

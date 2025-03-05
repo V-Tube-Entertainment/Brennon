@@ -1,0 +1,16 @@
+Velocity Module (Proxy Management)
+- Develop a dynamic server management system (add/remove servers).
+- Implement real-time server group management.
+- Enable synchronization across multiple Velocity proxies.
+- Implement Velocity-compatible punishment system (ban, mute, kick, warn).
+- Ensure cross-server synchronization of punishments.
+- Implement permission-based access for moderators.
+- Implement Velocity-compatible ticket system (create/view/resolve tickets).
+- Ensure cross-proxy ticket handling.
+- Implement Redis-based player punishment tracking.
+- Store ban/mute/ticket data in SQL.
+- Implement network-wide commands (`/bv` prefix).
+- Provide a server query API.
+- Write unit and integration tests for Velocity functions.
+- Validate server scaling scenarios.
+- Create documentation for Velocity integration.
