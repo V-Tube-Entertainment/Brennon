@@ -129,7 +129,6 @@ public abstract class AbstractBungeeUtilisalsX {
         );
 
         this.setupTasks();
-        this.registerMetrics();
     }
 
     public PermissionIntegration getActivePermissionIntegration()
@@ -384,7 +383,6 @@ public abstract class AbstractBungeeUtilisalsX {
         return partyManager != null;
     }
 
-    protected abstract void registerMetrics();
 
     protected void migrate()
     {

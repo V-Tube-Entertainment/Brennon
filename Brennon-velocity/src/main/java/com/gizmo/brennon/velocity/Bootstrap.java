@@ -14,8 +14,6 @@ import com.gizmo.brennon.core.api.utils.Platform;
 import com.gizmo.brennon.velocity.library.VelocityLibraryClassLoader;
 import com.gizmo.brennon.velocity.utils.Slf4jLoggerWrapper;
 import lombok.Getter;
-import org.bstats.velocity.Metrics;
-import org.bstats.velocity.Metrics.Factory;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -47,14 +45,12 @@ public class Bootstrap
     private final Logger logger;
     @Getter
     private final File dataFolder;
-    private final Factory metricsFactory;
     private AbstractBungeeUtilisalsX abstractBungeeUtilisalsX;
 
     @Inject
     public Bootstrap( final ProxyServer proxyServer,
                       final org.slf4j.Logger logger,
-                      final @DataDirectory Path dataDirectory,
-                      final Factory metricsFactory )
+                      final @DataDirectory Path dataDirectory)
     {
         instance = this;
         this.proxyServer = proxyServer;
@@ -65,7 +61,6 @@ public class Bootstrap
         }
         this.logger.addHandler( new Slf4jLoggerWrapper( logger ) );
         this.dataFolder = dataDirectory.toFile();
-        this.metricsFactory = metricsFactory;
     }
 
     @Subscribe
@@ -84,8 +79,4 @@ public class Bootstrap
         abstractBungeeUtilisalsX.shutdown();
     }
 
-    protected Metrics createMetrics()
-    {
-        return metricsFactory.make( this, 13139 );
-    }
 }
