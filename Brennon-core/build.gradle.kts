@@ -19,7 +19,8 @@ dependencies {
     implementation("dev.endoy.configuration:ConfigurationAPI:4.0.2") //
 
     implementation( "io.lettuce:lettuce-core:6.5.4.RELEASE") //
-    implementation("org.projectlombok:lombok:1.18.36")
+    compileOnly("org.projectlombok:lombok:1.18.36")
+    annotationProcessor("org.projectlombok:lombok:1.18.36")
 
     implementation("com.google.code.gson:gson:2.10") //
     implementation("com.google.guava:guava:31.1-jre") //
