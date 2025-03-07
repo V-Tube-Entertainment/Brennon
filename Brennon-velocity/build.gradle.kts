@@ -5,6 +5,7 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven("https://repo.endoy.dev/endoy-public")
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://oss.sonatype.org/content/repositories/snapshots")
     maven("https://libraries.minecraft.net")
@@ -13,7 +14,6 @@ repositories {
     maven("https://repo.spongepowered.org/repository/maven-public/")
     maven("https://repo.diogotc.com/snapshots/")
     maven("https://mvn.exceptionflug.de/repository/exceptionflug-public/")
-    maven("https://repo.endoy.dev/endoy-public")
     maven("https://repository.apache.org/content/repositories/snapshots/")
     maven("https://jitpack.io")
 }
@@ -21,7 +21,7 @@ repositories {
 dependencies {
     implementation(project(":Brennon-core"))
 
-    compileOnly("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
+    implementation("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
     annotationProcessor("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
     implementation("net.kyori:adventure-api:4.19.0")
     implementation("net.kyori:adventure-text-serializer-legacy:4.19.0")
