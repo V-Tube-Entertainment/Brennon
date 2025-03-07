@@ -25,7 +25,7 @@ import java.util.logging.Logger;
         id = "bungeeutilisalsx",
         name = "BungeeUtilisalsX",
         version = "2.4.7",
-        authors = { "Endoy" },
+        authors = { "Gizmo0320" },
         dependencies = {
                 @Dependency( id = "skinsrestorer", optional = true ),
                 @Dependency( id = "protocolize", optional = true ),

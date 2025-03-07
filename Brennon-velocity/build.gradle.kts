@@ -96,30 +96,30 @@ tasks {
         }
 
         // Relocate all important dependencies to avoid conflicts
-        relocate("org.bstats", "com.gizmo.brennon.velocity.lib.bstats")
-        relocate("io.github.karlatemp", "com.gizmo.brennon.velocity.lib.karlatemp")
-        relocate("org.jsoup", "com.gizmo.brennon.velocity.lib.jsoup")
-        relocate("com.rabbitmq", "com.gizmo.brennon.velocity.lib.rabbitmq")
-        relocate("org.apache.commons.pool2", "com.gizmo.brennon.velocity.lib.commons.pool2")
-        relocate("org.mozilla", "com.gizmo.brennon.velocity.lib.mozilla")
-        relocate("de.christophkraemer", "com.gizmo.brennon.velocity.lib.christophkraemer")
-        relocate("dev.endoy.configuration", "com.gizmo.brennon.velocity.lib.configuration")
-        relocate("io.lettuce", "com.gizmo.brennon.velocity.lib.lettuce")//
-        relocate("org.reactivestreams", "com.gizmo.brennon.velocity.lib.reactive")//
-        relocate("com.google.gson", "com.gizmo.brennon.velocity.lib.gson")
-        relocate("org.yaml.snakeyaml", "com.gizmo.brennon.velocity.lib.yaml")
-        relocate("com.zaxxer.hikari", "com.gizmo.brennon.velocity.lib.hikari")//
-        relocate("reactor", "com.gizmo.brennon.velocity.lib.reactor") //
-        relocate("io.netty", "com.gizmo.brennon.velocity.lib.netty")
-        relocate("com.mysql", "com.gizmo.brennon.velocity.lib.mysql")//
-        relocate("org.mariadb.jdbc", "com.gizmo.brennon.velocity.lib.mariadb")//
-        relocate("org.postgresql", "com.gizmo.brennon.velocity.lib.postgresql")//
-        relocate("org.sqlite", "com.gizmo.brennon.velocity.lib.sqlite")
-        relocate("com.mongodb", "com.gizmo.brennon.velocity.lib.mongodb")//
-        relocate("org.h2", "com.gizmo.brennon.velocity.lib.h2")
-        relocate("reactor", "com.gizmo.brennon.velocity.lib.reactor")
-        relocate("io.projectreactor", "com.gizmo.brennon.velocity.lib.reactor")//
-        relocate("io.netty", "com.gizmo.brennon.velocity.lib.netty") {
+        relocate("org.bstats", "com.gizmo.brennon.internal..bstats")
+        relocate("io.github.karlatemp", "com.gizmo.brennon.internal.karlatemp")
+        relocate("org.jsoup", "com.gizmo.brennon.internal.jsoup")
+        relocate("com.rabbitmq", "com.gizmo.brennon.internal.rabbitmq")
+        relocate("org.apache.commons.pool2", "com.gizmo.brennon.internal.commons.pool2")
+        relocate("org.mozilla", "com.gizmo.brennon.internal.mozilla")
+        relocate("de.christophkraemer", "com.gizmo.brennon.internal.christophkraemer")
+        relocate("dev.endoy.configuration", "com.gizmo.brennon.internal.configuration")
+        relocate("io.lettuce", "com.gizmo.brennon.internal.lettuce")//
+        relocate("org.reactivestreams", "com.gizmo.brennon.internal.reactive")//
+        relocate("com.google.gson", "com.gizmo.brennon.internal.gson")
+        relocate("org.yaml.snakeyaml", "com.gizmo.brennon.internal.yaml")
+        relocate("com.zaxxer.hikari", "com.gizmo.brennon.internal.hikari")//
+        relocate("reactor", "com.gizmo.brennon.internal.reactor") //
+        relocate("io.netty", "com.gizmo.brennon.internal.netty")
+        relocate("com.mysql", "com.gizmo.brennon.internal.mysql")//
+        relocate("org.mariadb.jdbc", "com.gizmo.brennon.internal.mariadb")//
+        relocate("org.postgresql", "com.gizmo.brennon.internal.postgresql")//
+        relocate("org.sqlite", "com.gizmo.brennon.internal.sqlite")
+        relocate("com.mongodb", "com.gizmo.brennon.internal.mongodb")//
+        relocate("org.h2", "com.gizmo.brennon.internal.h2")
+        relocate("reactor", "com.gizmo.brennon.internal.reactor")
+        relocate("io.projectreactor", "com.gizmo.brennon.internal.reactor")//
+        relocate("io.netty", "com.gizmo.brennon.internal.netty") {
             // Exclude Velocity's own Netty classes to avoid conflicts
             exclude("io.netty.velocity.**")
         }

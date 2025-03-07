@@ -181,7 +181,7 @@ public enum StandardLibrary
     private static Relocation relocate( final String pkg )
     {
         return new Relocation(
-            pkg.replace( "dev.endoy.bungeeutilisalsx.internal.", "" ),
+            pkg.replace( "com.gizmo.brennon.internal.", "" ),
             pkg
         );
     }
