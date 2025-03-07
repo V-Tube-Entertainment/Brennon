@@ -29,6 +29,7 @@ dependencies {
     implementation("net.kyori:adventure-text-serializer-legacy:4.19.0")
     implementation("net.kyori:adventure-text-minimessage:4.19.0")
     implementation("net.kyori:adventure-text-serializer-gson:4.19.0")
+    implementation("net.kyori:adventure-nbt:4.19.0")
     implementation("org.slf4j:slf4j-api:1.7.30")
     compileOnly("org.bstats:bstats-velocity:3.0.0")
     compileOnly("com.github.ProxioDev.ValioBungee:RedisBungee-Velocity:0.12.3")
@@ -42,6 +43,14 @@ dependencies {
     implementation("io.github.karlatemp:unsafe-accessor:1.7.0")
     compileOnly("org.projectlombok:lombok:1.18.36")
     annotationProcessor("org.projectlombok:lombok:1.18.36")
+    implementation("io.netty:netty-all:4.1.107.Final") // Add this line
+    implementation("io.netty:netty-transport:4.1.107.Final")
+    implementation("io.netty:netty-handler:4.1.107.Final")
+    implementation("io.netty:netty-codec:4.1.107.Final")
+    implementation("io.netty:netty-buffer:4.1.107.Final")
+    implementation("io.netty:netty-common:4.1.107.Final")
+    implementation("io.netty:netty-resolver:4.1.107.Final")
+    implementation("io.netty:netty-resolver-dns:4.1.107.Final")
 }
 
 tasks {
