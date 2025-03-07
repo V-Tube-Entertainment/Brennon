@@ -22,6 +22,8 @@ dependencies {
     implementation(project(":Brennon-core"))
 
     implementation("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
+    compileOnly("com.velocitypowered:velocity-native:3.4.0-SNAPSHOT")
+    compileOnly("com.velocitypowered:velocity-proxy:3.4.0-SNAPSHOT")
     annotationProcessor("com.velocitypowered:velocity-api:3.4.0-SNAPSHOT")
     implementation("net.kyori:adventure-api:4.19.0")
     implementation("net.kyori:adventure-text-serializer-legacy:4.19.0")
